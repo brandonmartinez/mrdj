@@ -40,5 +40,20 @@ export const cfg = {
   appleMusicKeyId:         process.env.APPLE_MUSIC_KEY_ID ?? '',
   appleMusicPrivateKey:    process.env.APPLE_MUSIC_PRIVATE_KEY ?? '',
   appleMusicApiUrl:        process.env.APPLE_MUSIC_API_URL ?? 'https://api.music.apple.com/v1',
+  // ── Payments / Stripe Connect (Epic 4) ─────────────────────────────────────
+  // Secrets via env only — never committed. CI/tests use nock VCR (no live keys).
+  stripeSecretKey:         process.env.STRIPE_SECRET_KEY ?? '',
+  stripePublishableKey:    process.env.STRIPE_PUBLISHABLE_KEY ?? '',
+  // Webhook signing secret (`whsec_…`) for verifying Stripe event signatures.
+  stripeWebhookSecret:     process.env.STRIPE_WEBHOOK_SECRET ?? '',
+  // Marketplace application fee taken on each guest credit purchase (O11), percent.
+  platformFeePercent:      parseFloat(process.env.PLATFORM_FEE_PERCENT ?? '10'),
+  // Default settlement currency for PaymentIntents.
+  paymentsCurrency:        (process.env.PAYMENTS_CURRENCY ?? 'usd').toLowerCase(),
+  // Connect Express onboarding redirect targets (Account Link refresh/return).
+  stripeConnectRefreshUrl: process.env.STRIPE_CONNECT_REFRESH_URL ?? 'http://localhost:5173/connect/refresh',
+  stripeConnectReturnUrl:  process.env.STRIPE_CONNECT_RETURN_URL ?? 'http://localhost:5173/connect/return',
+  // Window (ms) during which a card refund may still be issued (O7). Default 30 days.
+  refundWindowMs:          parseInt(process.env.REFUND_WINDOW_MS ?? String(30 * 24 * 60 * 60 * 1000), 10),
 } as const;
 

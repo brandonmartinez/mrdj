@@ -12,7 +12,7 @@
 //   gen_random_uuid() → .defaultRandom()   now() → .defaultNow()
 import { sql } from 'drizzle-orm';
 import {
-  pgTable, uuid, text, timestamp, integer, boolean, numeric, index, unique, check,
+  pgTable, uuid, text, timestamp, integer, boolean, numeric, index, unique, check, primaryKey,
 } from 'drizzle-orm/pg-core';
 
 export const users = pgTable('users', {
@@ -44,6 +44,13 @@ export const organizations = pgTable('organizations', {
   id: uuid('id').primaryKey().defaultRandom(),
   slug: text('slug').notNull().unique(),
   name: text('name').notNull(),
+  // Stripe Connect (Epic 4, O10/O14). stripeAccountId is the connected Express
+  // account; charges_enabled/payouts_enabled mirror its KYC/payout readiness via
+  // the account.updated webhook (#23). An org cannot accept paid actions until
+  // charges_enabled is true (#26 guard).
+  stripeAccountId: text('stripe_account_id'),
+  chargesEnabled: boolean('charges_enabled').notNull().default(false),
+  payoutsEnabled: boolean('payouts_enabled').notNull().default(false),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 
@@ -139,16 +146,18 @@ export const playNextSlot = pgTable('play_next_slot', {
   check('play_next_slot_status_check', sql`${t.status} IN ('available', 'locked', 'cooldown')`),
 ]);
 
-// slice-01 deviation: wallet per user_id (not account_id) to support guest wallets.
-// MVP keeps wallets unique on user_id (one org); organization_id is stamped for
-// tenant accounting and forward-compat (per-org balances land with Epic 4).
+// Wallet per (user_id, organization_id) — O8 org-scoped credits (Epic 4, #55).
+// A user holds an independent balance in every org they transact with; credits
+// earned at one org can never be spent at another. The composite UNIQUE backs the
+// upsert target used by grant/spend/refund.
 export const wallets = pgTable('wallets', {
   id: uuid('id').primaryKey().defaultRandom(),
-  userId: uuid('user_id').notNull().unique().references(() => users.id, { onDelete: 'cascade' }),
+  userId: uuid('user_id').notNull().references(() => users.id, { onDelete: 'cascade' }),
   organizationId: uuid('organization_id').notNull().references(() => organizations.id),
   balance: integer('balance').notNull().default(0),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
+  unique('wallets_user_org_key').on(t.userId, t.organizationId),
   check('wallets_balance_check', sql`${t.balance} >= 0`),
 ]);
 
@@ -168,19 +177,59 @@ export const creditTransactions = pgTable('credit_transactions', {
   check('credit_transactions_type_check', sql`${t.type} IN ('grant', 'spend', 'refund')`),
 ]);
 
-// Server-side pricing config; NEVER read from frontend
+// Server-side pricing config; NEVER read from frontend. Org-scoped (O9): each
+// Organization keeps its own pricing knobs; new orgs inherit platform defaults.
 export const pricingConfig = pgTable('pricing_config', {
-  key: text('key').primaryKey(),
+  organizationId: uuid('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
+  key: text('key').notNull(),
   value: integer('value').notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
-});
+}, (t) => [
+  primaryKey({ columns: [t.organizationId, t.key] }),
+]);
 
+// Credit bundles offered for purchase. Org-scoped (O9): each Organization manages
+// its own bundle lineup (price, credits, label); new orgs are seeded from platform
+// defaults. Owners/managers CRUD these (#43); the purchase flow (#30) reads them.
 export const creditBundles = pgTable('credit_bundles', {
   id: uuid('id').primaryKey().defaultRandom(),
+  organizationId: uuid('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
   label: text('label').notNull(),
   credits: integer('credits').notNull(),
   bonusCredits: integer('bonus_credits').notNull().default(0),
   priceCents: integer('price_cents').notNull(),
   discountPct: numeric('discount_pct', { precision: 5, scale: 2 }).notNull().default(sql`0`),
   sortOrder: integer('sort_order').notNull().default(0),
+  active: boolean('active').notNull().default(true),
+}, (t) => [
+  index('idx_credit_bundles_org').on(t.organizationId),
+]);
+
+// PlatformPayment ledger (Epic 4). One row per guest credit purchase, written
+// inside the same transaction as the credit grant (#34). organization_id-scoped
+// for tenant earnings reporting (#48); status tracks dispute lifecycle (#37).
+export const platformPayments = pgTable('platform_payments', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  organizationId: uuid('organization_id').notNull().references(() => organizations.id),
+  userId: uuid('user_id').notNull().references(() => users.id),
+  bundleId: uuid('bundle_id').references(() => creditBundles.id),
+  stripePaymentIntentId: text('stripe_payment_intent_id').notNull().unique(),
+  stripeChargeId: text('stripe_charge_id'),
+  amountCents: integer('amount_cents').notNull(),
+  applicationFeeCents: integer('application_fee_cents').notNull(),
+  currency: text('currency').notNull().default('usd'),
+  creditsGranted: integer('credits_granted').notNull(),
+  status: text('status').notNull().default('succeeded'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  index('idx_platform_payments_org').on(t.organizationId),
+  check('platform_payments_status_check', sql`${t.status} IN ('succeeded', 'disputed', 'refunded')`),
+]);
+
+// Stripe webhook idempotency guard. Stripe may deliver the same event id more than
+// once; recording processed ids makes replay a safe no-op across all handlers (#23/#34/#37).
+export const processedWebhookEvents = pgTable('processed_webhook_events', {
+  eventId: text('event_id').primaryKey(),
+  type: text('type').notNull(),
+  processedAt: timestamp('processed_at', { withTimezone: true }).notNull().defaultNow(),
 });

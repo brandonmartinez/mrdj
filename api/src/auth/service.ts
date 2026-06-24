@@ -116,31 +116,32 @@ export async function loginWithProfile(
     }
     const organizationId = membership.organizationId;
 
-    // 3. Merge pre-login guest credits into the account wallet (#89).
+    // 3. Merge pre-login guest credits into the account (#89). Credits are org-scoped
+    //    (O8), so move EACH guest wallet into the account user's wallet for the SAME org
+    //    — the balance follows the person without crossing tenant boundaries.
     let mergedCredits = 0;
     if (opts.guestUserId && opts.guestUserId !== userId) {
-      const [guestWallet] = await tx
-        .select({ balance: wallets.balance })
+      const guestWallets = await tx
+        .select({ organizationId: wallets.organizationId, balance: wallets.balance })
         .from(wallets)
-        .where(eq(wallets.userId, opts.guestUserId))
-        .limit(1);
-      const balance = guestWallet?.balance ?? 0;
-      if (balance > 0) {
-        // Move balance: zero the guest wallet, grant to the account (idempotent).
+        .where(eq(wallets.userId, opts.guestUserId));
+      for (const gw of guestWallets) {
+        if (gw.balance <= 0) continue;
+        // Zero the guest wallet for this org, then grant to the account (idempotent per org).
         await tx
           .update(wallets)
           .set({ balance: 0, updatedAt: sql`now()` })
-          .where(eq(wallets.userId, opts.guestUserId));
+          .where(and(eq(wallets.userId, opts.guestUserId), eq(wallets.organizationId, gw.organizationId)));
         await grantCredits(
           userId,
-          organizationId,
-          balance,
+          gw.organizationId,
+          gw.balance,
           'merge',
-          `merge:${opts.guestUserId}->${userId}`,
+          `merge:${opts.guestUserId}->${userId}:${gw.organizationId}`,
           userId,
           tx,
         );
-        mergedCredits = balance;
+        mergedCredits += gw.balance;
       }
     }
 

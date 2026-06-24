@@ -6,6 +6,9 @@ import cors from 'cors';
 import { cfg } from '../config/index.js';
 import { initSession } from './middleware.js';
 import { registerRoutes } from './routes.js';
+import { asyncHandler } from './middleware.js';
+import { stripeWebhookHandler } from '../payments/webhooks.js';
+import { PaymentConfigError } from '../payments/provider.js';
 
 declare module 'express-session' {
   interface SessionData {
@@ -25,6 +28,12 @@ export function createApp() {
     origin: cfg.isDev ? ['http://localhost:5173', 'http://127.0.0.1:5173'] : false,
     credentials: true,
   }));
+
+  // Stripe webhook MUST receive the raw body for signature verification, so it is
+  // mounted with express.raw BEFORE the global JSON parser (Epic 4, #23/#34/#37).
+  app.post('/api/webhooks/stripe',
+    express.raw({ type: 'application/json' }),
+    asyncHandler(stripeWebhookHandler));
 
   app.use(express.json());
 
@@ -52,6 +61,11 @@ export function createApp() {
     console.error('[api] unhandled route error:', err);
     if (res.headersSent) {
       next(err);
+      return;
+    }
+    // Misconfigured payments (missing Stripe keys) → 503, not a generic 500.
+    if (err instanceof PaymentConfigError) {
+      res.status(503).json({ error: { code: 'payments_unavailable', message: 'Payments are not configured' } });
       return;
     }
     res.status(500).json({ error: { code: 'internal', message: 'Internal server error' } });

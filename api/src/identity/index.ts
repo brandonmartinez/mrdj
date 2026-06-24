@@ -1,22 +1,16 @@
 // Owner: Rusty (identity reads + dev role switcher)
 import type { Request, Response } from 'express';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { db, wallets, events } from '../db/index.js';
 import { SEED_IDS, sendError } from '../http/middleware.js';
 
 export async function meHandler(req: Request, res: Response) {
   const userId = req.session.userId!;
 
-  // Credit balance (reads wallet; falls back to 0 if not found)
-  const [walletRow] = await db
-    .select({ balance: wallets.balance })
-    .from(wallets)
-    .where(eq(wallets.userId, userId));
-  const creditBalance: number = walletRow?.balance ?? 0;
-
-  // Fetch demo event (always the demo event for this slice)
+  // Fetch demo event (always the demo event for this slice). Its organization scopes
+  // the credit balance (O8: balances are per-org).
   const [event] = await db
-    .select({ id: events.id, slug: events.slug, name: events.name })
+    .select({ id: events.id, slug: events.slug, name: events.name, organizationId: events.organizationId })
     .from(events)
     .where(eq(events.slug, 'demo'))
     .limit(1);
@@ -24,6 +18,13 @@ export async function meHandler(req: Request, res: Response) {
     sendError(res, 404, 'not_found', 'Demo event not found — did migrations + seed run?');
     return;
   }
+
+  // Credit balance for this user in the demo event's org (falls back to 0 if no wallet).
+  const [walletRow] = await db
+    .select({ balance: wallets.balance })
+    .from(wallets)
+    .where(and(eq(wallets.userId, userId), eq(wallets.organizationId, event.organizationId)));
+  const creditBalance: number = walletRow?.balance ?? 0;
 
   res.json({
     user: {

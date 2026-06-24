@@ -3,7 +3,7 @@ import type { Request, Response } from 'express';
 import { and, asc, desc, eq, gt, gte, inArray, sql } from 'drizzle-orm';
 import {
   db, pgErrorCode,
-  queueItems, tracks, playNextSlot, pricingConfig, wallets, creditTransactions,
+  queueItems, tracks, playNextSlot, pricingConfig, wallets, creditTransactions, events,
 } from '../db/index.js';
 import { getEventBySlug } from '../event/index.js';
 import { sendError } from '../http/middleware.js';
@@ -107,9 +107,10 @@ async function fetchQueueItem(id: string) {
   return rows[0];
 }
 
-/** Read a user's current credit balance (0 if no wallet row). */
-async function fetchBalance(userId: string): Promise<number> {
-  const [row] = await db.select({ balance: wallets.balance }).from(wallets).where(eq(wallets.userId, userId));
+/** Read a user's current credit balance in an org (0 if no wallet row). */
+async function fetchBalance(userId: string, organizationId: string): Promise<number> {
+  const [row] = await db.select({ balance: wallets.balance }).from(wallets)
+    .where(and(eq(wallets.userId, userId), eq(wallets.organizationId, organizationId)));
   return row?.balance ?? 0;
 }
 
@@ -119,6 +120,15 @@ async function fetchBalance(userId: string): Promise<number> {
 // own transaction has committed), so it takes no executor.
 
 export async function buildQueueView(eventId: string, userId: string): Promise<QueueView> {
+  // The event determines the tenant: pricing and the viewer's wallet balance are both
+  // organization-scoped (O8), so resolve the org once and filter every read by it.
+  const [evt] = await db
+    .select({ organizationId: events.organizationId })
+    .from(events)
+    .where(eq(events.id, eventId))
+    .limit(1);
+  const organizationId = evt?.organizationId ?? null;
+
   const [nowRows, prevRows, upcomingRows, pnsRows, pricingRows, walletRows] = await Promise.all([
     db.select(QUEUE_ITEM_COLS).from(queueItems).innerJoin(tracks, eq(tracks.id, queueItems.trackId))
       .where(and(eq(queueItems.eventId, eventId), eq(queueItems.status, 'playing'))).limit(1),
@@ -130,9 +140,18 @@ export async function buildQueueView(eventId: string, userId: string): Promise<Q
       .orderBy(asc(queueItems.position)),
     db.select({ status: playNextSlot.status, holderQueueItemId: playNextSlot.holderQueueItemId })
       .from(playNextSlot).where(eq(playNextSlot.eventId, eventId)),
-    db.select({ key: pricingConfig.key, value: pricingConfig.value })
-      .from(pricingConfig).where(inArray(pricingConfig.key, ['queue', 'boost', 'play_next'])),
-    db.select({ balance: wallets.balance }).from(wallets).where(eq(wallets.userId, userId)),
+    organizationId
+      ? db.select({ key: pricingConfig.key, value: pricingConfig.value })
+          .from(pricingConfig)
+          .where(and(
+            eq(pricingConfig.organizationId, organizationId),
+            inArray(pricingConfig.key, ['queue', 'boost', 'play_next']),
+          ))
+      : Promise.resolve([] as { key: string; value: number }[]),
+    organizationId
+      ? db.select({ balance: wallets.balance }).from(wallets)
+          .where(and(eq(wallets.userId, userId), eq(wallets.organizationId, organizationId)))
+      : Promise.resolve([] as { balance: number }[]),
   ]);
 
   const pricing: QueueView['pricing'] = { queue: 0, boost: 1, playNext: 3 };
@@ -232,7 +251,10 @@ export async function createRequestHandler(req: Request, res: Response) {
       const pricingRows = await tx
         .select({ key: pricingConfig.key, value: pricingConfig.value })
         .from(pricingConfig)
-        .where(inArray(pricingConfig.key, ['queue', 'boost', 'play_next']));
+        .where(and(
+          eq(pricingConfig.organizationId, event.organization_id),
+          inArray(pricingConfig.key, ['queue', 'boost', 'play_next']),
+        ));
       const pricing = { queue: 0, boost: 1, playNext: 3 };
       for (const r of pricingRows) {
         if (r.key === 'queue')     pricing.queue    = r.value;
@@ -272,7 +294,7 @@ export async function createRequestHandler(req: Request, res: Response) {
       // ── Balance check (paid tiers) ────────────────────────────────────────
       if (cost > 0) {
         const [w] = await tx.select({ balance: wallets.balance })
-          .from(wallets).where(eq(wallets.userId, userId));
+          .from(wallets).where(and(eq(wallets.userId, userId), eq(wallets.organizationId, event.organization_id)));
         const bal = w?.balance ?? 0;
         if (bal < cost) {
           return { kind: 'insufficient' as const, cost, balance: bal };
@@ -347,7 +369,7 @@ export async function createRequestHandler(req: Request, res: Response) {
       if (cost > 0) {
         await tx.update(wallets)
           .set({ balance: sql`${wallets.balance} - ${cost}`, updatedAt: sql`now()` })
-          .where(eq(wallets.userId, userId));
+          .where(and(eq(wallets.userId, userId), eq(wallets.organizationId, event.organization_id)));
       }
 
       // ── Lock play_next slot ───────────────────────────────────────────────
@@ -365,7 +387,7 @@ export async function createRequestHandler(req: Request, res: Response) {
       const [queueItem, queueView, creditBalance] = await Promise.all([
         fetchQueueItem(result.queueItemId),
         buildQueueView(event.id, userId),
-        fetchBalance(userId),
+        fetchBalance(userId, event.organization_id),
       ]);
       res.json({
         queueItem:     queueItem ? rowToQueueItem(queueItem) : null,
@@ -393,7 +415,7 @@ export async function createRequestHandler(req: Request, res: Response) {
     const [queueItemFull, queueView, creditBalance] = await Promise.all([
       fetchQueueItem(result.queueItemId),
       buildQueueView(event.id, userId),
-      fetchBalance(userId),
+      fetchBalance(userId, event.organization_id),
     ]);
     res.status(201).json({
       queueItem:     rowToQueueItem(queueItemFull!),
@@ -418,7 +440,7 @@ export async function createRequestHandler(req: Request, res: Response) {
           const [queueItem, queueView, creditBalance] = await Promise.all([
             fetchQueueItem(existingTx.referenceId as string),
             buildQueueView(event.id, userId),
-            fetchBalance(userId),
+            fetchBalance(userId, event.organization_id),
           ]);
           res.status(200).json({
             queueItem:     queueItem ? rowToQueueItem(queueItem) : null,
@@ -439,7 +461,7 @@ export async function createRequestHandler(req: Request, res: Response) {
     // as 402 insufficient_credits, not a 500. No charge is applied (the transaction rolled back).
     if (pgErrorCode(err) === '23514') {
       try {
-        const balance = await fetchBalance(userId);
+        const balance = await fetchBalance(userId, event.organization_id);
         sendError(res, 402, 'insufficient_credits', 'Insufficient credits', {
           required: cost,
           balance,

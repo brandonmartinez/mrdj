@@ -8,6 +8,14 @@ import { getQueueHandler, createRequestHandler } from '../queue/index.js';
 import { getBundlesHandler } from '../credits/index.js';
 import { searchTracksHandler } from '../music/index.js';
 import { checkoutSessionStub, checkoutCompleteHandler } from '../payments/index.js';
+import { connectOnboardingHandler, connectStatusHandler } from '../payments/connect.js';
+import { requireChargesEnabled } from '../payments/guard.js';
+import { purchaseHandler } from '../payments/purchase.js';
+import { refundHandler } from '../payments/refund.js';
+import { orgPaymentsHandler, platformPaymentsHandler } from '../payments/ledger.js';
+import {
+  listBundlesHandler, createBundleHandler, updateBundleHandler, deleteBundleHandler,
+} from '../payments/pricing.js';
 import {
   adminGrantHandler,
   adminAdvanceHandler,
@@ -98,6 +106,8 @@ export function registerRoutes(app: Express) {
 
   // ── Platform admin (#76) ──────────────────────────────────────────────────
   app.get('/api/admin/platform/orgs', requirePlatformAdmin, asyncHandler(listPlatformOrgsHandler));
+  // Aggregate marketplace earnings across all orgs (Epic 4, #48).
+  app.get('/api/admin/payments', requirePlatformAdmin, asyncHandler(platformPaymentsHandler));
 
   // ── Organizations (#71) — O12 /o/{slug}-style path routing ────────────────
   app.post('/api/orgs', requirePlatformAdmin, asyncHandler(createOrgHandler));
@@ -105,6 +115,33 @@ export function registerRoutes(app: Express) {
     asyncHandler(resolveOrg()), asyncHandler(requireMembership('staff')), asyncHandler(getOrgHandler));
   app.patch('/api/orgs/:orgSlug',
     asyncHandler(resolveOrg()), asyncHandler(requireMembership('manager')), asyncHandler(updateOrgHandler));
+
+  // ── Stripe Connect onboarding (Epic 4, #20/#23) ───────────────────────────
+  app.post('/api/orgs/:orgSlug/stripe/connect',
+    asyncHandler(resolveOrg()), asyncHandler(requireMembership('manager')), asyncHandler(connectOnboardingHandler));
+  app.get('/api/orgs/:orgSlug/stripe/status',
+    asyncHandler(resolveOrg()), asyncHandler(requireMembership('staff')), asyncHandler(connectStatusHandler));
+
+  // ── Per-org credit bundles CRUD (Epic 4, #43) ─────────────────────────────
+  app.get('/api/orgs/:orgSlug/bundles',
+    asyncHandler(resolveOrg()), asyncHandler(requireMembership('staff')), asyncHandler(listBundlesHandler));
+  app.post('/api/orgs/:orgSlug/bundles',
+    asyncHandler(resolveOrg()), asyncHandler(requireMembership('manager')), asyncHandler(createBundleHandler));
+  app.patch('/api/orgs/:orgSlug/bundles/:bundleId',
+    asyncHandler(resolveOrg()), asyncHandler(requireMembership('manager')), asyncHandler(updateBundleHandler));
+  app.delete('/api/orgs/:orgSlug/bundles/:bundleId',
+    asyncHandler(resolveOrg()), asyncHandler(requireMembership('manager')), asyncHandler(deleteBundleHandler));
+
+  // ── Guest credit purchase (Epic 4, #30) — destination charge + app fee ─────
+  // Guests purchase (no membership required); charges_enabled guard blocks until KYC.
+  app.post('/api/orgs/:orgSlug/credits/purchase',
+    asyncHandler(resolveOrg()), asyncHandler(requireChargesEnabled()), asyncHandler(purchaseHandler));
+
+  // ── Earnings + refunds (Epic 4, #40/#48) ──────────────────────────────────
+  app.get('/api/orgs/:orgSlug/payments',
+    asyncHandler(resolveOrg()), asyncHandler(requireMembership('manager')), asyncHandler(orgPaymentsHandler));
+  app.post('/api/orgs/:orgSlug/payments/:paymentId/refund',
+    asyncHandler(resolveOrg()), asyncHandler(requireMembership('manager')), asyncHandler(refundHandler));
 
   // ── Memberships (#72) ─────────────────────────────────────────────────────
   app.get('/api/orgs/:orgSlug/members',

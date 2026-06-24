@@ -192,16 +192,16 @@ async function seed() {
 
       // Server-side pricing config (never sent raw to frontend except via QueueView.pricing)
       await tx.insert(pricingConfig).values([
-        { key: 'queue',     value: 0 },
-        { key: 'boost',     value: 1 },
-        { key: 'play_next', value: 3 },
-      ]).onConflictDoNothing({ target: pricingConfig.key });
+        { organizationId: IDS.defaultOrg, key: 'queue',     value: 0 },
+        { organizationId: IDS.defaultOrg, key: 'boost',     value: 1 },
+        { organizationId: IDS.defaultOrg, key: 'play_next', value: 3 },
+      ]).onConflictDoNothing({ target: [pricingConfig.organizationId, pricingConfig.key] });
 
-      // Credit bundles: small/standard/large with bonus credits
+      // Credit bundles (platform defaults — O9): $5/$10/$20 with bonus credits.
       await tx.insert(creditBundles).values([
-        { id: IDS.bundleStarter, label: 'Starter Pack', credits:  5, bonusCredits:  0, priceCents: 199, discountPct: '0.00',  sortOrder: 1 },
-        { id: IDS.bundleParty,   label: 'Party Pack',   credits: 15, bonusCredits:  2, priceCents: 499, discountPct: '9.09',  sortOrder: 2 },
-        { id: IDS.bundleVip,     label: 'VIP Pack',     credits: 30, bonusCredits: 10, priceCents: 999, discountPct: '24.24', sortOrder: 3 },
+        { id: IDS.bundleStarter, organizationId: IDS.defaultOrg, label: 'Starter Pack', credits:  5, bonusCredits: 0, priceCents:  500, discountPct: '0.00', sortOrder: 1 },
+        { id: IDS.bundleParty,   organizationId: IDS.defaultOrg, label: 'Party Pack',   credits: 10, bonusCredits: 1, priceCents: 1000, discountPct: '9.09', sortOrder: 2 },
+        { id: IDS.bundleVip,     organizationId: IDS.defaultOrg, label: 'VIP Pack',     credits: 20, bonusCredits: 4, priceCents: 2000, discountPct: '16.67', sortOrder: 3 },
       ]).onConflictDoNothing({ target: creditBundles.id });
     });
 

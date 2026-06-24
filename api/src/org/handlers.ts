@@ -7,6 +7,7 @@ import {
 import { ORG_ROLES, type OrgRole } from './index.js';
 import { sendError } from '../http/middleware.js';
 import { pgErrorCode } from '../db/index.js';
+import { seedOrgPricingDefaults } from '../payments/pricing.js';
 
 const SLUG_RE = /^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$/;
 
@@ -44,6 +45,8 @@ export async function createOrgHandler(req: Request, res: Response) {
           role:           'owner',
         });
       }
+      // Seed platform-default pricing + credit bundles (O9, #43) — replayable.
+      await seedOrgPricingDefaults(created.id, tx);
       return created;
     });
     res.status(201).json({ organization: org });

@@ -2,6 +2,14 @@
 // PaymentProvider abstraction: stub checkout mimics production shape so Frank
 // can swap in Stripe without changing callers.
 
+/** Thrown when a payment operation is attempted without required configuration. */
+export class PaymentConfigError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'PaymentConfigError';
+  }
+}
+
 export interface CheckoutSession {
   sessionId: string;
   status:    'requires_completion';

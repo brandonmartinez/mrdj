@@ -3,26 +3,25 @@ import { v4 as uuidv4 } from 'uuid';
 import { and, eq } from 'drizzle-orm';
 import { db, creditBundles, creditTransactions, wallets } from '../db/index.js';
 import { grantCredits } from '../credits/service.js';
-import { getDefaultOrgId } from '../org/index.js';
 import type { PaymentProvider, CheckoutSession, CheckoutResult } from './provider.js';
 
 // In-memory session store — stub only.
 // Real flow: Frank's webhook looks up the bundle from Stripe's event metadata.
-type SessionMeta = { bundleId: string; userId: string; credits: number };
+type SessionMeta = { bundleId: string; userId: string; credits: number; organizationId: string };
 const stubSessions = new Map<string, SessionMeta>();
 
 export class StubPaymentProvider implements PaymentProvider {
   async createCheckoutSession(bundleId: string, userId: string): Promise<CheckoutSession> {
     // Verify bundle exists and get total credit amount (credits + bonus)
     const [bundle] = await db
-      .select({ credits: creditBundles.credits, bonusCredits: creditBundles.bonusCredits })
+      .select({ credits: creditBundles.credits, bonusCredits: creditBundles.bonusCredits, organizationId: creditBundles.organizationId })
       .from(creditBundles)
       .where(eq(creditBundles.id, bundleId));
     if (!bundle) throw new Error(`Bundle ${bundleId} not found`);
 
     const sessionId    = `stub_session_${uuidv4()}`;
     const totalCredits = bundle.credits + bundle.bonusCredits;
-    stubSessions.set(sessionId, { bundleId, userId, credits: totalCredits });
+    stubSessions.set(sessionId, { bundleId, userId, credits: totalCredits, organizationId: bundle.organizationId });
 
     return {
       sessionId,
@@ -45,7 +44,7 @@ export class StubPaymentProvider implements PaymentProvider {
       // user, return the current balance (no second grant — CreditsService already
       // prevented it via the UNIQUE constraint).
       const [existing] = await db
-        .select({ id: creditTransactions.id })
+        .select({ id: creditTransactions.id, organizationId: creditTransactions.organizationId })
         .from(creditTransactions)
         .where(and(
           eq(creditTransactions.idempotencyKey, idempotencyKey),
@@ -55,15 +54,14 @@ export class StubPaymentProvider implements PaymentProvider {
         const [balRow] = await db
           .select({ balance: wallets.balance })
           .from(wallets)
-          .where(eq(wallets.userId, userId));
+          .where(and(eq(wallets.userId, userId), eq(wallets.organizationId, existing.organizationId)));
         return { creditBalance: balRow?.balance ?? 0 };
       }
       throw new Error(`Session '${sessionId}' not found — may have already been completed`);
     }
 
-    // Grant correct credits from the bundle (not a hardcoded amount)
-    const organizationId = await getDefaultOrgId();
-    if (!organizationId) throw new Error('No organization configured');
+    // Grant correct credits from the bundle to the bundle's organization (O8 org-scoped).
+    const organizationId = meta.organizationId;
     const result = await grantCredits(userId, organizationId, meta.credits, 'purchase', idempotencyKey);
 
     // Remove session after a successful grant.  The idempotency key in credit_transactions

@@ -1,7 +1,7 @@
 // Owner: Frank (interface) | Basher (integration) — see docs/ARCHITECTURE.md §5.3
 // This is the seam. Frank's webhook calls grantCredits. Basher's queue handlers
 // call spendCredits. Neither reaches into the other's implementation.
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import { db, creditTransactions, wallets, pgErrorCode, type DbExecutor } from '../db/index.js';
 
 export interface CreditsResult {
@@ -31,7 +31,8 @@ export async function grantCredits(
       .from(creditTransactions)
       .where(eq(creditTransactions.idempotencyKey, idempotencyKey));
     if (existing) {
-      const [bal] = await ex.select({ balance: wallets.balance }).from(wallets).where(eq(wallets.userId, userId));
+      const [bal] = await ex.select({ balance: wallets.balance }).from(wallets)
+        .where(and(eq(wallets.userId, userId), eq(wallets.organizationId, organizationId)));
       return { success: true, newBalance: bal?.balance ?? 0, transactionId: existing.id };
     }
 
@@ -44,7 +45,7 @@ export async function grantCredits(
       .insert(wallets)
       .values({ userId, organizationId, balance: amount })
       .onConflictDoUpdate({
-        target: wallets.userId,
+        target: [wallets.userId, wallets.organizationId],
         set:    { balance: sql`${wallets.balance} + ${amount}`, updatedAt: sql`now()` },
       })
       .returning({ balance: wallets.balance });
@@ -71,7 +72,8 @@ export async function grantCredits(
         .from(creditTransactions)
         .where(eq(creditTransactions.idempotencyKey, idempotencyKey));
       if (existingTx) {
-        const [bal] = await db.select({ balance: wallets.balance }).from(wallets).where(eq(wallets.userId, userId));
+        const [bal] = await db.select({ balance: wallets.balance }).from(wallets)
+          .where(and(eq(wallets.userId, userId), eq(wallets.organizationId, organizationId)));
         return { success: true, newBalance: bal?.balance ?? 0, transactionId: existingTx.id };
       }
     }
@@ -107,7 +109,8 @@ export async function refundCredits(
       .from(creditTransactions)
       .where(eq(creditTransactions.idempotencyKey, idempotencyKey));
     if (existing) {
-      const [bal] = await ex.select({ balance: wallets.balance }).from(wallets).where(eq(wallets.userId, userId));
+      const [bal] = await ex.select({ balance: wallets.balance }).from(wallets)
+        .where(and(eq(wallets.userId, userId), eq(wallets.organizationId, organizationId)));
       return { success: true, newBalance: bal?.balance ?? 0, transactionId: existing.id, alreadyRefunded: true };
     }
 
@@ -120,7 +123,7 @@ export async function refundCredits(
       .insert(wallets)
       .values({ userId, organizationId, balance: amount })
       .onConflictDoUpdate({
-        target: wallets.userId,
+        target: [wallets.userId, wallets.organizationId],
         set:    { balance: sql`${wallets.balance} + ${amount}`, updatedAt: sql`now()` },
       })
       .returning({ balance: wallets.balance });
@@ -141,7 +144,8 @@ export async function refundCredits(
         .from(creditTransactions)
         .where(eq(creditTransactions.idempotencyKey, idempotencyKey));
       if (existingTx) {
-        const [bal] = await db.select({ balance: wallets.balance }).from(wallets).where(eq(wallets.userId, userId));
+        const [bal] = await db.select({ balance: wallets.balance }).from(wallets)
+          .where(and(eq(wallets.userId, userId), eq(wallets.organizationId, organizationId)));
         return { success: true, newBalance: bal?.balance ?? 0, transactionId: existingTx.id, alreadyRefunded: true };
       }
     }
@@ -149,9 +153,10 @@ export async function refundCredits(
   }
 }
 
-/** Read current credit balance for a user. */
-export async function getBalance(userId: string): Promise<number> {
-  const [row] = await db.select({ balance: wallets.balance }).from(wallets).where(eq(wallets.userId, userId));
+/** Read current credit balance for a user within an organization (0 if no wallet). */
+export async function getBalance(userId: string, organizationId: string): Promise<number> {
+  const [row] = await db.select({ balance: wallets.balance }).from(wallets)
+    .where(and(eq(wallets.userId, userId), eq(wallets.organizationId, organizationId)));
   return row?.balance ?? 0;
 }
 
