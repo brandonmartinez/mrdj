@@ -41,3 +41,11 @@
 ## 2026-06-23 — Slice-01 Acceptance Spec
 
 Wrote `docs/slice-01-acceptance.md`: 13 Given/When/Then scenarios (S-01–S-13), 10 money-correctness checks (MC-01–MC-10), a 16-step manual smoke-test script, and a 33-item traceability checklist mapping REQUIREMENTS.md to scenarios. Built against D6 (action labels Add to Queue / Boost / Play Next, stub payments/music, polling realtime, Cover Flow CSS transforms). Out-of-scope list explicitly excludes k3s, real Google SSO, real payment processor, real Apple Music/Spotify, DJ-rig integration, and O7 reject-with-refund.
+
+## 2026-06-24 — Multi-tenant marketplace scope pass
+
+Updated product scope at 2026-06-24T09:17:13-04:00: multi-tenant SaaS reversed from Out/backlog to In/MVP. Reflected D7 marketplace via Stripe Connect in `docs/REQUIREMENTS.md` and `docs/PROJECT-CHARTER.md`; aligned canonical terms Organization, Membership, Event, Area, Platform Admin; added O8–O16 to the PRD open decisions table; recorded scope reversal in `decisions/inbox/saul-multitenancy-scope.md`.
+
+## 2026-06-24 — Phase 2 Backlog Pass
+
+Authored `docs/ROADMAP.md` (release train v0.2.0→v0.6.0+backlog, dependency diagram, epic→release→owner table). Created 11 EPIC GitHub issues (#5–#15) from Rusty's technical sequencing plan. Coordinated four parallel worker agents (saul-core, saul-money, saul-experience, saul-ops) that created 89 story issues — 100 total. Decision BP1 recorded.

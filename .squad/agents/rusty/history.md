@@ -65,3 +65,15 @@ Standing up a greenfield monorepo from scratch for the mrdj guest jukebox:
 - **Basher:** implement POST /events/:slug/requests, /checkout/stub-complete, /admin/credits/grant, /admin/events/:slug/advance. All stubs are in `api/src/queue/index.ts`, `api/src/payments/index.ts`, `api/src/admin/index.ts`. See `docs/slice-01-contract.md`.
 - **Linus:** Replace `web/src/App.tsx` with real Cover Flow UI (search-as-you-type, modals). API client is `web/src/api.ts`. See `docs/slice-01-contract.md`.
 - **Frank:** Finalize `PaymentProvider` interface in `api/src/payments/provider.ts`; implement real checkout provider; see `CreditsService.grantCredits()` for integration point.
+
+## 2026-06-24 | Multi-Tenant Marketplace Architecture Pass
+
+**Status:** ✅ Complete
+
+Updated `.squad/decisions.md` and `docs/ARCHITECTURE.md` for D7: Organization/Membership/Area multi-tenancy, Stripe Connect marketplace monetization, Organization-scoped credits/wallets/pricing/bundles, per-Area queues + Play Next slots, app-level `organization_id` tenant scoping for MVP, and design-level migration/backfill path. Added O8–O16 for follow-up decisions and recorded inbox rationale in `.squad/decisions/inbox/rusty-multitenancy.md`.
+
+## 2026-06-24 | Phase 2 Technical Sequencing Plan
+
+**Status:** ✅ Complete
+
+Produced the Phase 2 technical sequencing plan: 11-epic table with release assignments (v0.2.0→v0.6.0+backlog), ~89-story breakdown, dependency graph, start-here recommendations, and go/needs-research flags per epic. Plan consumed by Saul to author `docs/ROADMAP.md` and create GitHub epics #5–#15, and by four worker agents (saul-core/money/experience/ops) to scope 89 story issues. Decision BP1 recorded in `.squad/decisions.md`.
