@@ -275,3 +275,83 @@ These are **different products** with different costs and availability.
 **Reviewed:** 2026-06-23  
 **Verdict:** 🟡 YELLOW (advisory recommendations; no blockers)  
 **Status:** NON-BLOCKING — work proceeds with suggestions attached
+
+---
+
+## 2026-06-23 — Slice-01 Implementation RAI Review (Post-Code Pass)
+
+**Reviewed by:** Rai (Responsible AI Reviewer)  
+**Requested by:** Brandon Martinez  
+**Scope:** Implemented code for Slice-01 local guest jukebox — `api/src/**`, `web/src/**`, seed data, env config  
+**Review Type:** POST-IMPLEMENTATION  
+**Reference:** `docs/slice-01-contract.md`, D6 decision (inbox), `docs/REQUIREMENTS.md`
+
+### Files Reviewed
+
+`web/src/components/ConfirmModal.tsx`, `TrackRow.tsx`, `App.tsx`, `Header.tsx`, `AdminPanel.tsx`; `api/src/payments/stub.ts`, `provider.ts`; `api/src/credits/service.ts`; `api/src/db/seed.ts`; `.env.example`, `k8s/.env.example`; `.env` / `k8s/.env` / `k8s/.env.secret.temp` (gitignored — confirmed untracked)
+
+---
+
+### Verdict: 🟢 GREEN (local dev slice)
+
+No critical violations. Dark-pattern concerns from the design-pass advisory are largely well-addressed in the implementation. Stub checkout is clearly disclosed. Server-authoritative pricing is correctly enforced. No secrets committed. Play Next unavailability UX is honest. Advisory items below are production-required follow-ups — none block the local slice.
+
+---
+
+### 🟢 STRENGTHS
+
+1. **No pre-selected expensive bundle.** `selectedBundle` initialises `null`; purchase button disabled until user actively picks. Bundles in ascending-price order (Starter → Party → VIP). No dark-pattern default-to-expensive.
+2. **Stub disclosure is honest and visible.** "Dev stub — no real payment is processed" shown in-context below the purchase button (`ConfirmModal.tsx` line 312).
+3. **Server-authoritative pricing correctly enforced.** UI reads `queueView.pricing.*` (server-sourced); never from request body. Contract explicitly forbids client-sent prices.
+4. **Play Next unavailability is honest, not artificial pressure.** `TrackRow.tsx` shows "Slot taken" (locked) / "Cooling down" (cooldown) with disabled state + `aria-label` reason. `App.tsx` status bar shows colored badge for each state. Mirrors real server state.
+5. **Confirm modal full transparency before spend.** Shows action, credit cost, and balance AFTER the action. Cancel is frictionless (button, Escape key, overlay click). `resultingBalance < 0` renders in red (edge-case honest guard).
+6. **Secrets/PII clean.** `.env`, `k8s/.env`, `k8s/.env.secret.temp` confirmed gitignored and not tracked. `.env.example` placeholder values only (`SESSION_SECRET=dev-secret-change-in-prod` with explicit prod warning). `admin@mrdj.dev` is fictional stub address. No real PII in tracked files.
+7. **15 seed tracks all public domain.** All composers deceased 100+ years or traditional folk. Artwork = inline SVG placeholders (no audio → no recording copyright exposure). Seed comment documents PD status. Livingston coordination: flag only, no block.
+8. **Credit balance always visible.** Header shows balance prominently. Confirm modal shows before/after. Server returns updated balance on every action.
+
+---
+
+### 🟡 ADVISORY (production-required or recommended)
+
+#### F1 — O7 Refund Boundary: Deferred Correctly for Local Slice, MUST Resolve Before Production (P1)
+
+D6 explicitly scopes NO refund on Play Next reset when DJ advances. `AdminPanel.tsx` footer discloses this to the admin. For local dev (no real charges) this is acceptable and D6-documented. **Before real-money launch:** implement auto-refund in `adminAdvance` — when `play_next_slot.status = 'locked'`, issue `refundCredits(holderUserId, playNextCost, 'dj-advance-refund', idempotencyKey)` in the same transaction. This is already the O7 proposal in `.squad/decisions.md`. **Owner:** Frank (ledger) + Basher (advance trigger).
+
+#### F2 — Discount Percentage Basis Opaque (P2)
+
+"SAVE 9%" (Party Pack) and "SAVE 24%" (VIP Pack) badges. The formula used doesn't match any clearly derivable calculation. Technically ambiguous — "SAVE X% of what?" is unclear. Not inflated or deceptive (if anything, conservative), but copy should be clearer before production. **Proposed fix:** replace "SAVE X%" with `+{bonusCredits} bonus credits` highlight, or add tooltip "X% more credits vs Starter rate." The per-credit rate already shown is the honest anchor — leverage that. **Owner:** Frank (pricing definition) + Linus (copy).
+
+#### F3 — Screen Reader: No aria-live for Modal State Transitions (P1 for public launch)
+
+`ConfirmModal.tsx` transitions `processing → success / error` silently. No `aria-live`, no `aria-busy`, no `aria-label` on spinner. Screen reader users receive no audible feedback when a payment transaction completes. **Proposed fix (Linus):** add `aria-live="polite" aria-atomic="true"` to the modal card; add `aria-label="Processing, please wait"` to the spinner; ensure focus shifts to success/error heading on phase change.
+
+#### F4 — Play Next Status Bar: No Accessible Description (P2)
+
+`App.tsx` status bar renders "★ Play Next [badge] Xcr" without `aria-label` on the container. Screen reader reads raw badge text without context. **Proposed fix (Linus):** `aria-label={`Play Next slot: ${status}. Price: ${price} credits.`}` on the status bar div.
+
+#### F5 — "Slot taken" Tooltip Doesn't Explain Reset Timing (P3)
+
+`TrackRow.tsx` Play Next button: `title="Slot taken"` when locked. Prior audit recommended explaining *when* it resets. **Proposed fix (Linus, optional for this slice):** `title="Slot taken — available after the current Play Next song plays"`.
+
+---
+
+### 🔴 CRITICAL VIOLATIONS
+
+**NONE FOUND.** No hardcoded secrets, no injection vulnerabilities, no harmful content, no deceptive patterns.
+
+---
+
+### Priority Table
+
+| ID | Priority | Finding | Owner | Local slice blocker? |
+|----|----------|---------|-------|---------------------|
+| F1 | **P1** | O7 no-refund on Play Next reset — must fix before real-money launch | Frank + Basher | No (deferred, D6-documented) |
+| F2 | **P2** | Discount % basis opaque ("SAVE X%") | Frank + Linus | No |
+| F3 | **P1** | No aria-live for modal state transitions | Linus | No |
+| F4 | **P2** | Play Next status bar — no accessible description | Linus | No |
+| F5 | **P3** | "Slot taken" tooltip — no reset timing | Linus | No |
+
+**Verdict:** 🟢 GREEN — local dev slice ships. P1/P2 items tracked for production gate.
+
+**Reviewed:** 2026-06-23 T21:30 EDT  
+**Signature:** Rai
