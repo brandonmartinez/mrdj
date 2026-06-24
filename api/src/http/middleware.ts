@@ -1,5 +1,20 @@
 // Owner: Rusty (middleware)
 import type { Request, Response, NextFunction, RequestHandler } from 'express';
+import {
+  getOrgBySlug, getMembershipForUser, roleSatisfies,
+  type OrgRole, type OrganizationRow, type MembershipRow,
+} from '../org/index.js';
+
+// Per-request tenant context, populated by resolveOrg / requireMembership.
+declare global {
+  // eslint-disable-next-line @typescript-eslint/no-namespace
+  namespace Express {
+    interface Request {
+      orgContext?: OrganizationRow;
+      membership?: MembershipRow;
+    }
+  }
+}
 
 // Seeded guest user (stable ID matching seed.ts)
 export const SEED_IDS = {
@@ -28,6 +43,64 @@ export function requireAdmin(req: Request, res: Response, next: NextFunction) {
     return;
   }
   next();
+}
+
+/**
+ * Guard: require the SaaS platform-operator role (#76).
+ *
+ * D7 keeps Platform Admin distinct from org roles. Until dedicated platform-admin
+ * accounts exist (later epic), the seeded global `admin` session stands in for the
+ * operator. Org membership is checked separately by requireMembership.
+ */
+export const requirePlatformAdmin = requireAdmin;
+
+/**
+ * Resolve `:orgSlug` to a tenant and attach it as `req.orgContext` (O12 path
+ * routing, #69). 404s unknown orgs so isolation failures read as "not found"
+ * rather than leaking existence. Mount before requireMembership.
+ */
+export function resolveOrg(): RequestHandler {
+  return async (req, res, next) => {
+    const slug = req.params.orgSlug;
+    if (!slug) {
+      sendError(res, 400, 'validation', 'Organization slug is required');
+      return;
+    }
+    const org = await getOrgBySlug(slug);
+    if (!org) {
+      sendError(res, 404, 'not_found', `Organization '${slug}' not found`);
+      return;
+    }
+    req.orgContext = org;
+    next();
+  };
+}
+
+/**
+ * Guard: require the session account to hold at least `minRole` in `req.orgContext`
+ * (O13 app-level tenant scoping, #69/#72). Must run after resolveOrg. A missing
+ * membership is a 403 — being a member of another org grants nothing here.
+ */
+export function requireMembership(minRole: OrgRole = 'staff'): RequestHandler {
+  return async (req, res, next) => {
+    const org = req.orgContext;
+    if (!org) {
+      sendError(res, 500, 'internal', 'resolveOrg must run before requireMembership');
+      return;
+    }
+    const userId = req.session.userId;
+    if (!userId) {
+      sendError(res, 403, 'forbidden', 'Authentication required');
+      return;
+    }
+    const membership = await getMembershipForUser(org.id, userId);
+    if (!membership || !roleSatisfies(membership.role, minRole)) {
+      sendError(res, 403, 'forbidden', `Requires '${minRole}' role in organization '${org.slug}'`);
+      return;
+    }
+    req.membership = membership;
+    next();
+  };
 }
 
 /** Standard error shape used across all routes. */

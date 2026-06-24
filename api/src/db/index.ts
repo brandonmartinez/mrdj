@@ -3,6 +3,8 @@
 // connection rules (no named prepared statements) still hold: the node-postgres
 // driver issues unnamed, parameterised statements.
 import { drizzle } from 'drizzle-orm/node-postgres';
+import { eq, type SQL } from 'drizzle-orm';
+import type { PgColumn } from 'drizzle-orm/pg-core';
 import { pool } from './pool.js';
 import * as schema from './schema.js';
 
@@ -22,17 +24,35 @@ export type DbExecutor = DB | Tx;
 export { schema };
 export * from './schema.js';
 
+/** Any tenant-scoped table exposes an `organizationId` column. */
+export interface TenantTable {
+  organizationId: PgColumn;
+}
+
 /**
- * Tenant query seam (Epic 1 stub for D7 multi-tenancy).
+ * A tenant query scope (D7 multi-tenancy, Epic 2).
  *
- * Today this is a no-op pass-through: no table carries `organization_id` yet, so
- * there is nothing to scope. When the multi-tenant schema lands (Epic 2) this
- * becomes the single choke point that constrains every query to one tenant —
- * callers already routing through `forOrg(orgId)` get isolation for free.
+ * Drizzle has no global query filter, so isolation is enforced explicitly: every
+ * org-scoped query composes `scope.owns(table)` into its WHERE clause. Routing all
+ * tenant reads/writes through `forOrg(orgId)` keeps the `organization_id` predicate
+ * in one place and makes cross-tenant leakage a visible omission rather than a
+ * silent default.
  */
-export function forOrg(_organizationId: string): DB {
-  // TODO(multi-tenant, Epic 2): apply organization_id scoping here.
-  return db;
+export interface OrgScope {
+  readonly organizationId: string;
+  readonly db: DB;
+  /** WHERE predicate constraining a tenant table to this scope's organization. */
+  owns(table: TenantTable): SQL;
+}
+
+export function forOrg(organizationId: string): OrgScope {
+  return {
+    organizationId,
+    db,
+    owns(table: TenantTable): SQL {
+      return eq(table.organizationId, organizationId);
+    },
+  };
 }
 
 /**

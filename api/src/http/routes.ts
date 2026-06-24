@@ -16,7 +16,17 @@ import {
   adminStatsHandler,
 } from '../admin/index.js';
 import { streamHandler } from '../realtime/index.js';
-import { requireAdmin, sendError, asyncHandler } from './middleware.js';
+import {
+  requireAdmin, requirePlatformAdmin, resolveOrg, requireMembership,
+  sendError, asyncHandler,
+} from './middleware.js';
+import {
+  createOrgHandler, getOrgHandler, updateOrgHandler, listPlatformOrgsHandler,
+  listMembersHandler, addMemberHandler, updateMemberHandler, removeMemberHandler,
+} from '../org/handlers.js';
+import {
+  listAreasHandler, createAreaHandler, updateAreaHandler, deleteAreaHandler,
+} from '../area/index.js';
 
 export function registerRoutes(app: Express) {
   // ── Health ────────────────────────────────────────────────────────────────
@@ -79,6 +89,36 @@ export function registerRoutes(app: Express) {
   app.post('/api/admin/events/:slug/reorder',   requireAdmin, asyncHandler(adminReorderHandler));
   app.post('/api/admin/events/:slug/remove',    requireAdmin, asyncHandler(adminRemoveHandler));
   app.get('/api/admin/events/:slug/stats',      requireAdmin, asyncHandler(adminStatsHandler));
+
+  // ── Platform admin (#76) ──────────────────────────────────────────────────
+  app.get('/api/admin/platform/orgs', requirePlatformAdmin, asyncHandler(listPlatformOrgsHandler));
+
+  // ── Organizations (#71) — O12 /o/{slug}-style path routing ────────────────
+  app.post('/api/orgs', requirePlatformAdmin, asyncHandler(createOrgHandler));
+  app.get('/api/orgs/:orgSlug',
+    asyncHandler(resolveOrg()), asyncHandler(requireMembership('staff')), asyncHandler(getOrgHandler));
+  app.patch('/api/orgs/:orgSlug',
+    asyncHandler(resolveOrg()), asyncHandler(requireMembership('manager')), asyncHandler(updateOrgHandler));
+
+  // ── Memberships (#72) ─────────────────────────────────────────────────────
+  app.get('/api/orgs/:orgSlug/members',
+    asyncHandler(resolveOrg()), asyncHandler(requireMembership('staff')), asyncHandler(listMembersHandler));
+  app.post('/api/orgs/:orgSlug/members',
+    asyncHandler(resolveOrg()), asyncHandler(requireMembership('manager')), asyncHandler(addMemberHandler));
+  app.patch('/api/orgs/:orgSlug/members/:membershipId',
+    asyncHandler(resolveOrg()), asyncHandler(requireMembership('owner')), asyncHandler(updateMemberHandler));
+  app.delete('/api/orgs/:orgSlug/members/:membershipId',
+    asyncHandler(resolveOrg()), asyncHandler(requireMembership('owner')), asyncHandler(removeMemberHandler));
+
+  // ── Areas (#74) ───────────────────────────────────────────────────────────
+  app.get('/api/orgs/:orgSlug/events/:eventSlug/areas',
+    asyncHandler(resolveOrg()), asyncHandler(requireMembership('staff')), asyncHandler(listAreasHandler));
+  app.post('/api/orgs/:orgSlug/events/:eventSlug/areas',
+    asyncHandler(resolveOrg()), asyncHandler(requireMembership('manager')), asyncHandler(createAreaHandler));
+  app.patch('/api/orgs/:orgSlug/events/:eventSlug/areas/:areaId',
+    asyncHandler(resolveOrg()), asyncHandler(requireMembership('manager')), asyncHandler(updateAreaHandler));
+  app.delete('/api/orgs/:orgSlug/events/:eventSlug/areas/:areaId',
+    asyncHandler(resolveOrg()), asyncHandler(requireMembership('manager')), asyncHandler(deleteAreaHandler));
 
   // ── 404 catch-all ─────────────────────────────────────────────────────────
   app.use((req, res) => {
