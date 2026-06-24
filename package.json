@@ -1,0 +1,20 @@
+{
+  "name": "mrdj",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "api",
+    "web"
+  ],
+  "scripts": {
+    "dev": "concurrently --names api,web --prefix-colors cyan,magenta \"npm run dev -w api\" \"npm run dev -w web\"",
+    "build": "npm run build -w api && npm run build -w web",
+    "test": "npm run test -w api && npm run test -w web",
+    "db:migrate": "npm run db:migrate -w api",
+    "db:seed": "npm run db:seed -w api",
+    "db:reset": "npm run db:reset -w api"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}

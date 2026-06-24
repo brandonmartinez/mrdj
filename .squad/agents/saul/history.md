@@ -37,3 +37,7 @@
 - Pricing impacts refund/chargeback rates. If requests are too expensive, expect more disputes. O7 (refund policy) and O2 (pricing) should be decided together for coherence.
 
 **Status:** O7 co-ownership confirmed. Privacy policy identified as pre-launch blocker. No blockers to starting. Ready to draft privacy policy now; O7 scope to finalize post-O1 confirmation.
+
+## 2026-06-23 — Slice-01 Acceptance Spec
+
+Wrote `docs/slice-01-acceptance.md`: 13 Given/When/Then scenarios (S-01–S-13), 10 money-correctness checks (MC-01–MC-10), a 16-step manual smoke-test script, and a 33-item traceability checklist mapping REQUIREMENTS.md to scenarios. Built against D6 (action labels Add to Queue / Boost / Play Next, stub payments/music, polling realtime, Cover Flow CSS transforms). Out-of-scope list explicitly excludes k3s, real Google SSO, real payment processor, real Apple Music/Spotify, DJ-rig integration, and O7 reject-with-refund.
