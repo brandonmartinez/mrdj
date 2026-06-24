@@ -29,3 +29,28 @@
 - **O7 (refund policy) touches your code:** When DJ skips a paid Play Next song, call `refundCredits(accountId, play_next_cost, "dj_skip", queue_item_id, idempotencyKey)`. Frank handles policy, you implement the trigger in admin module.
 
 **Status:** A1 baseline locked. O3 framed, awaiting your decision. No blockers. Ready to start queue/state machine implementation post-O3 confirmation.
+
+## 2026-06-23 Wave 2 — Write Endpoints + Money Correctness
+
+**Commit:** `4a70821`
+
+**Foundation verification:** Rusty's Wave 1 foundation booted cleanly (health ✓, /me ✓, queue ✓, search ✓, bundles ✓). No foundation fixes needed.
+
+**Endpoints implemented:**
+- `POST /api/events/:slug/requests` — queue (free), boost (1 cr), play_next (3 cr)
+- `POST /api/checkout/stub-complete` — resolves stub session, grants correct bundle credits
+- `POST /api/admin/credits/grant` — admin grant with actor_id audit trail
+- `POST /api/admin/events/:slug/advance` — playing→played, next pending→playing, slot reset
+
+**Money invariants enforced:**
+- All paid paths: explicit `BEGIN`/`COMMIT`; `ROLLBACK` on every failure path
+- Server-authoritative pricing: `pricing_config` table, never request body
+- Idempotency: `credit_transactions.idempotency_key` UNIQUE; even free (0-cost) queue adds insert a row so all tiers have consistent idempotency
+- Play Next lock: `SELECT ... FOR UPDATE` on `play_next_slot` BEFORE idempotency check; concurrent second purchaser gets 409
+- `StubPaymentProvider` fixed: now stores session metadata (bundleId → totalCredits) in in-memory Map; stub-complete grants correct amount, not a hardcoded 5
+
+**Tests:** 11/11 vitest tests pass (MC-01..MC-10). Run: `npm test -w api`
+
+**Smoke test results:** All MC-01..MC-10 verified via curl against live API (see report to Coordinator).
+
+**Decision:** O3 (realtime transport) remains open — Linus will need polling or SSE to update Cover Flow after queue mutations. Recommend Basher/Linus pair to resolve before sprint review.
