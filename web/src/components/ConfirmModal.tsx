@@ -197,7 +197,7 @@ export function ConfirmModal({
 
         {/* ── PROCESSING ──────────────────────────────────── */}
         {(phase === 'processing' || phase === 'purchasing') && (
-          <div className="p-10 flex flex-col items-center gap-4">
+          <div className="p-10 flex flex-col items-center gap-4" role="status" aria-live="polite">
             <div className="w-10 h-10 border-2 border-violet-500 border-t-transparent rounded-full animate-spin" />
             <p className="text-zinc-400 text-sm">
               {phase === 'processing' ? 'Requesting track…' : 'Processing payment…'}
@@ -207,7 +207,7 @@ export function ConfirmModal({
 
         {/* ── SUCCESS ─────────────────────────────────────── */}
         {phase === 'success' && (
-          <div className="p-10 flex flex-col items-center gap-3">
+          <div className="p-10 flex flex-col items-center gap-3" role="status" aria-live="polite">
             <div className="w-14 h-14 rounded-full bg-green-900/50 flex items-center justify-center">
               <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-green-400">
                 <path d="M20 6 9 17l-5-5" />
@@ -281,7 +281,7 @@ export function ConfirmModal({
                         <span className="text-white font-bold">{b.label}</span>
                         {b.discountPct > 0 && (
                           <span className="bg-green-900/60 text-green-400 text-xs font-bold px-1.5 py-0.5 rounded-full">
-                            SAVE {b.discountPct}%
+                            SAVE {Math.round(b.discountPct)}%
                           </span>
                         )}
                       </div>

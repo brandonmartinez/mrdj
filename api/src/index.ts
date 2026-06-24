@@ -7,6 +7,17 @@ async function main() {
   console.log('[api] mrdj API starting…');
   console.log(`[api] env=${cfg.nodeEnv} port=${cfg.port}`);
 
+  // Process-level safety net: a transient failure (e.g. a DB blip, or db:reset run against
+  // the live stack) must never hard-crash the API. Log and keep serving — the per-request
+  // error boundary (asyncHandler + terminal error middleware) already converts in-request
+  // failures into JSON 500s; these catch anything that escapes a timer/async seam.
+  process.on('unhandledRejection', (reason) => {
+    console.error('[api] unhandledRejection (kept alive):', reason);
+  });
+  process.on('uncaughtException', (err) => {
+    console.error('[api] uncaughtException (kept alive):', err);
+  });
+
   await waitForDb();
   console.log('[api] Database connected');
 

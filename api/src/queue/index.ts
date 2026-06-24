@@ -4,6 +4,18 @@ import type { PoolClient } from 'pg';
 import { pool } from '../db/pool.js';
 import { getEventBySlug } from '../event/index.js';
 import { sendError } from '../http/middleware.js';
+import type { ApiError } from '../http/middleware.js';
+import { refundCredits } from '../credits/service.js';
+import { publishQueueChanged } from '../realtime/index.js';
+
+// Carries an HTTP status + error code out of the core queue functions so the
+// admin handlers can translate failures into the right response envelope.
+export class QueueError extends Error {
+  constructor(public code: ApiError, message: string, public status: number) {
+    super(message);
+    this.name = 'QueueError';
+  }
+}
 
 // ── Shared types (frozen contract — see docs/slice-01-contract.md) ────────────
 
@@ -189,6 +201,8 @@ export async function createRequestHandler(req: Request, res: Response) {
   }
 
   const c = await pool.connect();
+  // Hoisted so the catch block can report it on a 23514 (concurrent-spend) recovery.
+  let cost = 0;
   try {
     await c.query('BEGIN');
 
@@ -202,9 +216,9 @@ export async function createRequestHandler(req: Request, res: Response) {
       if (r.key === 'boost')     pricing.boost    = r.value;
       if (r.key === 'play_next') pricing.playNext = r.value;
     }
-    const cost = tier === 'queue' ? pricing.queue
-               : tier === 'boost' ? pricing.boost
-               : pricing.playNext;
+    cost = tier === 'queue' ? pricing.queue
+         : tier === 'boost' ? pricing.boost
+         : pricing.playNext;
 
     // ── Acquire Play Next slot lock BEFORE idempotency check ─────────────
     // FOR UPDATE serialises concurrent play_next purchases; held until COMMIT/ROLLBACK.
@@ -351,6 +365,7 @@ export async function createRequestHandler(req: Request, res: Response) {
     }
 
     await c.query('COMMIT');
+    publishQueueChanged(event.id);
 
     // ── Build response (outside transaction — read-only) ──────────────────
     const [queueItemFull, queueView, walletRow] = await Promise.all([
@@ -413,6 +428,24 @@ export async function createRequestHandler(req: Request, res: Response) {
       }
     }
 
+    // Concurrent-spend recovery (Postgres 23514 = check_violation on wallets.balance >= 0):
+    // Two paid requests can both pass the balance check (each sees balance ≥ cost) before
+    // either commits, then the second debit drives the wallet below zero and trips the CHECK.
+    // That is a money condition (the user can't afford both), not a server fault — surface it
+    // as 402 insufficient_credits, not a 500. No charge is applied (the transaction rolled back).
+    if ((err as { code?: string }).code === '23514') {
+      try {
+        const walletRow = await pool.query('SELECT balance FROM wallets WHERE user_id = $1', [userId]);
+        sendError(res, 402, 'insufficient_credits', 'Insufficient credits', {
+          required: cost,
+          balance:  walletRow.rows[0]?.balance ?? 0,
+        });
+        return;
+      } catch {
+        // Fall through and re-throw the original error.
+      }
+    }
+
     throw err;
   } finally {
     c.release();
@@ -440,11 +473,18 @@ export async function advanceQueue(eventId: string, userId: string): Promise<Que
       [eventId],
     );
 
-    // Promote the next pending item (play_next holder is at position 1, otherwise min position)
+    // Promote the next pending item (play_next holder is at position 1, otherwise min position).
+    // FOR UPDATE so a concurrent removeQueueItem — which locks the row, rejects it, and refunds
+    // inside its own txn — cannot be promoted here. If remove commits first, EvalPlanQual re-checks
+    // the qual against the new row version (now status='rejected'), excludes it, and locks the next
+    // still-pending row instead. The status guard on the UPDATE is belt-and-suspenders. Without this
+    // an advance||remove race (e.g. the auto-advance timer vs an admin remove) could set a
+    // just-refunded item to 'playing' — refunding the guest AND still playing their song.
     const nextRow = await c.query(
       `SELECT id FROM queue_items
        WHERE event_id = $1 AND status = 'pending'
-       ORDER BY position ASC LIMIT 1`,
+       ORDER BY position ASC LIMIT 1
+       FOR UPDATE`,
       [eventId],
     );
 
@@ -452,7 +492,7 @@ export async function advanceQueue(eventId: string, userId: string): Promise<Que
       await c.query(
         `UPDATE queue_items
          SET status = 'playing', is_play_next = false, position = 0, updated_at = now()
-         WHERE id = $1`,
+         WHERE id = $1 AND status = 'pending'`,
         [nextRow.rows[0].id],
       );
     }
@@ -466,6 +506,7 @@ export async function advanceQueue(eventId: string, userId: string): Promise<Que
     );
 
     await c.query('COMMIT');
+    publishQueueChanged(eventId);
 
     return buildQueueView(eventId, userId);
   } catch (err) {
@@ -474,4 +515,263 @@ export async function advanceQueue(eventId: string, userId: string): Promise<Que
   } finally {
     c.release();
   }
+}
+
+// ── removeQueueItem — admin remove/reject with O7 auto-refund ─────────────────
+export interface RemoveResult {
+  queueView: QueueView;
+  refund:    { userId: string; amount: number } | null;
+}
+
+/**
+ * Remove (reject) a pending queue item on behalf of an admin.
+ *  - Only pending (never-played) items can be removed.
+ *  - O7 auto-refund: if the item carried a paid spend (boost / play_next), refund the exact
+ *    amount to the requester. Append-only + idempotent (key `refund-<queueItemId>`); the
+ *    status='pending' guard means a re-remove can't double-refund.
+ *  - If the item held the Play Next slot, reset the slot to available.
+ *  - Remaining pending positions are recompacted (holder stays first).
+ */
+export async function removeQueueItem(
+  eventId:     string,
+  queueItemId: string,
+  adminUserId: string,
+): Promise<RemoveResult> {
+  const c = await pool.connect();
+  try {
+    await c.query('BEGIN');
+
+    const itemRow = await c.query(
+      `SELECT id, status, is_play_next, requester_id
+       FROM queue_items WHERE id = $1 AND event_id = $2 FOR UPDATE`,
+      [queueItemId, eventId],
+    );
+    const item = itemRow.rows[0];
+    if (!item) {
+      await c.query('ROLLBACK');
+      throw new QueueError('not_found', 'Queue item not found', 404);
+    }
+    if (item.status !== 'pending') {
+      await c.query('ROLLBACK');
+      throw new QueueError('validation', 'Only a pending (not-yet-played) item can be removed', 409);
+    }
+
+    // Look up the original paid spend (if any) before mutating.
+    const spendRow = await c.query(
+      `SELECT amount FROM credit_transactions
+       WHERE reference_id = $1 AND type = 'spend' AND amount > 0
+       ORDER BY created_at ASC LIMIT 1`,
+      [queueItemId],
+    );
+    const spendAmount: number = spendRow.rows[0]?.amount ?? 0;
+
+    // Mark rejected and pull it out of the ordering.
+    await c.query(
+      `UPDATE queue_items
+       SET status = 'rejected', is_play_next = false, position = 0, updated_at = now()
+       WHERE id = $1`,
+      [queueItemId],
+    );
+
+    // Recompact remaining pending positions (Play Next holder pinned first).
+    await c.query(
+      `WITH ordered AS (
+         SELECT id, ROW_NUMBER() OVER (ORDER BY is_play_next DESC, position ASC) AS rn
+         FROM queue_items WHERE event_id = $1 AND status = 'pending'
+       )
+       UPDATE queue_items qi SET position = o.rn FROM ordered o WHERE qi.id = o.id`,
+      [eventId],
+    );
+
+    // If it held the Play Next slot, free it.
+    if (item.is_play_next) {
+      await c.query(
+        `UPDATE play_next_slot
+         SET status = 'available', holder_queue_item_id = NULL, reset_at = now()
+         WHERE event_id = $1`,
+        [eventId],
+      );
+    }
+
+    // O7 auto-refund (only for paid, unplayed items).
+    let refund: { userId: string; amount: number } | null = null;
+    if (spendAmount > 0) {
+      await refundCredits(
+        item.requester_id as string,
+        spendAmount,
+        'refund',
+        `refund-${queueItemId}`,
+        queueItemId,
+        adminUserId,
+        c,
+      );
+      refund = { userId: item.requester_id as string, amount: spendAmount };
+    }
+
+    await c.query('COMMIT');
+    publishQueueChanged(eventId);
+
+    const queueView = await buildQueueView(eventId, adminUserId);
+    return { queueView, refund };
+  } catch (err) {
+    await c.query('ROLLBACK').catch(() => {});
+    throw err;
+  } finally {
+    c.release();
+  }
+}
+
+// ── reorderQueueItem — admin nudge a pending item up/down ─────────────────────
+/**
+ * Swap a pending item with its immediate neighbour.
+ *  - The Play Next holder is pinned at the top: it cannot be moved, and nothing can move above it.
+ *  - Edge moves (already first/last) are no-ops that return the current view.
+ *  - All pending items are locked FOR UPDATE so a concurrent guest bump can't interleave.
+ */
+export async function reorderQueueItem(
+  eventId:     string,
+  queueItemId: string,
+  direction:   'up' | 'down',
+  adminUserId: string,
+): Promise<QueueView> {
+  if (direction !== 'up' && direction !== 'down') {
+    throw new QueueError('validation', "direction must be 'up' or 'down'", 400);
+  }
+
+  const c = await pool.connect();
+  try {
+    await c.query('BEGIN');
+
+    const rows = await c.query(
+      `SELECT id, position, is_play_next
+       FROM queue_items
+       WHERE event_id = $1 AND status = 'pending'
+       ORDER BY position ASC
+       FOR UPDATE`,
+      [eventId],
+    );
+    const items = rows.rows as { id: string; position: number; is_play_next: boolean }[];
+    const idx = items.findIndex((r) => r.id === queueItemId);
+    if (idx === -1) {
+      await c.query('ROLLBACK');
+      throw new QueueError('not_found', 'Pending queue item not found', 404);
+    }
+
+    const target = items[idx];
+    if (target.is_play_next) {
+      await c.query('ROLLBACK');
+      throw new QueueError('validation', 'The Play Next holder is pinned and cannot be reordered', 409);
+    }
+
+    const neighborIdx = direction === 'up' ? idx - 1 : idx + 1;
+    if (neighborIdx < 0 || neighborIdx >= items.length) {
+      await c.query('ROLLBACK'); // already at the edge — no-op
+      return buildQueueView(eventId, adminUserId);
+    }
+
+    const neighbor = items[neighborIdx];
+    if (neighbor.is_play_next) {
+      await c.query('ROLLBACK');
+      throw new QueueError('validation', 'Cannot move above the Play Next holder', 409);
+    }
+
+    await c.query(
+      `UPDATE queue_items SET position = $1, updated_at = now() WHERE id = $2`,
+      [neighbor.position, target.id],
+    );
+    await c.query(
+      `UPDATE queue_items SET position = $1, updated_at = now() WHERE id = $2`,
+      [target.position, neighbor.id],
+    );
+
+    await c.query('COMMIT');
+    publishQueueChanged(eventId);
+
+    return buildQueueView(eventId, adminUserId);
+  } catch (err) {
+    await c.query('ROLLBACK').catch(() => {});
+    throw err;
+  } finally {
+    c.release();
+  }
+}
+
+// ── eventStats — simple aggregates for the DJ console ─────────────────────────
+export interface EventStats {
+  requestCount:     number;
+  paidRequestCount: number;
+  creditsSpent:     number;
+  creditsRefunded:  number;
+  playNext:         { status: string; purchasedCount: number };
+  topRequesters:    { userId: string; displayName: string; requests: number; spent: number }[];
+}
+
+export async function getEventStats(eventId: string): Promise<EventStats> {
+  const [counts, spend, refunded, playNext, pnPurchased, topRequesters] = await Promise.all([
+    pool.query(
+      `SELECT
+         COUNT(*) FILTER (WHERE qi.status <> 'rejected') AS request_count,
+         COUNT(*) FILTER (
+           WHERE qi.status <> 'rejected' AND EXISTS (
+             SELECT 1 FROM credit_transactions ct
+             WHERE ct.reference_id = qi.id AND ct.type = 'spend' AND ct.amount > 0
+           )
+         ) AS paid_request_count
+       FROM queue_items qi WHERE qi.event_id = $1`,
+      [eventId],
+    ),
+    pool.query(
+      `SELECT COALESCE(SUM(ct.amount), 0) AS spent
+       FROM credit_transactions ct
+       JOIN queue_items qi ON qi.id = ct.reference_id
+       WHERE qi.event_id = $1 AND ct.type = 'spend' AND ct.amount > 0`,
+      [eventId],
+    ),
+    pool.query(
+      `SELECT COALESCE(SUM(ct.amount), 0) AS refunded
+       FROM credit_transactions ct
+       JOIN queue_items qi ON qi.id = ct.reference_id
+       WHERE qi.event_id = $1 AND ct.type = 'refund'`,
+      [eventId],
+    ),
+    pool.query(`SELECT status FROM play_next_slot WHERE event_id = $1`, [eventId]),
+    pool.query(
+      `SELECT COUNT(*) AS purchased
+       FROM credit_transactions ct
+       JOIN queue_items qi ON qi.id = ct.reference_id
+       WHERE qi.event_id = $1 AND ct.reason = 'play_next' AND ct.type = 'spend'`,
+      [eventId],
+    ),
+    pool.query(
+      `SELECT qi.requester_id AS user_id,
+              COALESCE(a.display_name, 'Guest') AS display_name,
+              COUNT(DISTINCT qi.id) FILTER (WHERE qi.status <> 'rejected') AS requests,
+              COALESCE(SUM(ct.amount) FILTER (WHERE ct.type = 'spend' AND ct.amount > 0), 0) AS spent
+       FROM queue_items qi
+       LEFT JOIN accounts a ON a.user_id = qi.requester_id
+       LEFT JOIN credit_transactions ct ON ct.reference_id = qi.id
+       WHERE qi.event_id = $1
+       GROUP BY qi.requester_id, a.display_name
+       ORDER BY requests DESC, spent DESC
+       LIMIT 5`,
+      [eventId],
+    ),
+  ]);
+
+  return {
+    requestCount:     Number(counts.rows[0]?.request_count ?? 0),
+    paidRequestCount: Number(counts.rows[0]?.paid_request_count ?? 0),
+    creditsSpent:     Number(spend.rows[0]?.spent ?? 0),
+    creditsRefunded:  Number(refunded.rows[0]?.refunded ?? 0),
+    playNext: {
+      status:         playNext.rows[0]?.status ?? 'available',
+      purchasedCount: Number(pnPurchased.rows[0]?.purchased ?? 0),
+    },
+    topRequesters: (topRequesters.rows as Record<string, unknown>[]).map((r) => ({
+      userId:      r.user_id as string,
+      displayName: r.display_name as string,
+      requests:    Number(r.requests ?? 0),
+      spent:       Number(r.spent ?? 0),
+    })),
+  };
 }

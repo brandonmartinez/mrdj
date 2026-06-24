@@ -1,5 +1,6 @@
 // Owner: Rusty (HTTP server setup)
 import express from 'express';
+import type { NextFunction, Request, Response } from 'express';
 import session from 'express-session';
 import cors from 'cors';
 import { cfg } from '../config/index.js';
@@ -41,6 +42,18 @@ export function createApp() {
   app.use(initSession);
 
   registerRoutes(app);
+
+  // Terminal error boundary — any error passed to next() (incl. async throws caught by
+  // asyncHandler) lands here as a JSON 500 instead of crashing the process or leaking a
+  // stack trace. Must be registered AFTER all routes. Express identifies it by arity (4 args).
+  app.use((err: unknown, _req: Request, res: Response, next: NextFunction) => {
+    console.error('[api] unhandled route error:', err);
+    if (res.headersSent) {
+      next(err);
+      return;
+    }
+    res.status(500).json({ error: { code: 'internal', message: 'Internal server error' } });
+  });
 
   return app;
 }

@@ -69,6 +69,27 @@ export interface RequestResponse {
   queueView:     QueueView;
 }
 
+export interface RefundInfo {
+  userId: string;
+  amount: number;
+}
+
+export interface TopRequester {
+  userId:      string;
+  displayName: string;
+  requests:    number;
+  spent:       number;
+}
+
+export interface EventStats {
+  requestCount:     number;
+  paidRequestCount: number;
+  creditsSpent:     number;
+  creditsRefunded:  number;
+  playNext:         { status: string; purchasedCount: number };
+  topRequesters:    TopRequester[];
+}
+
 export class ApiRequestError extends Error {
   constructor(
     message: string,
@@ -159,4 +180,22 @@ export const api = {
     apiFetch<{ queueView: QueueView }>(`/api/admin/events/${slug}/advance`, {
       method: 'POST',
     }),
+
+  adminReorder: (slug: string, queueItemId: string, direction: 'up' | 'down') =>
+    apiFetch<{ queueView: QueueView }>(`/api/admin/events/${slug}/reorder`, {
+      method: 'POST',
+      body: JSON.stringify({ queueItemId, direction }),
+    }),
+
+  adminRemove: (slug: string, queueItemId: string) =>
+    apiFetch<{ queueView: QueueView; refund: RefundInfo | null }>(`/api/admin/events/${slug}/remove`, {
+      method: 'POST',
+      body: JSON.stringify({ queueItemId }),
+    }),
+
+  adminStats: (slug: string) =>
+    apiFetch<{ stats: EventStats }>(`/api/admin/events/${slug}/stats`),
+
+  // SSE stream URL (relative → same-origin via the Vite proxy). Consumed by useQueueStream.
+  streamUrl: (slug: string) => `/api/events/${slug}/stream`,
 };

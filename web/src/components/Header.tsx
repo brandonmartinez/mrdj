@@ -6,9 +6,11 @@ interface HeaderProps {
   role: string;
   creditBalance: number;
   onRoleSwitch: (role: 'guest' | 'admin') => Promise<void>;
+  view?: 'guest' | 'console';
+  onToggleView?: () => void;
 }
 
-export function Header({ eventName, displayName, role, creditBalance, onRoleSwitch }: HeaderProps) {
+export function Header({ eventName, displayName, role, creditBalance, onRoleSwitch, view, onToggleView }: HeaderProps) {
   const headerRef = useRef<HTMLElement>(null);
 
   // Expose header height as --header-h CSS variable for scroll math
@@ -42,6 +44,21 @@ export function Header({ eventName, displayName, role, creditBalance, onRoleSwit
 
         {/* Right side */}
         <div className="flex items-center gap-3 flex-shrink-0">
+          {/* DJ Console toggle (admin only) */}
+          {isAdmin && onToggleView && (
+            <button
+              onClick={onToggleView}
+              aria-pressed={view === 'console'}
+              className={`px-3 py-1.5 text-xs font-bold rounded-lg border transition-colors ${
+                view === 'console'
+                  ? 'bg-yellow-700 text-white border-yellow-600'
+                  : 'bg-zinc-900 text-yellow-300 border-yellow-700/50 hover:bg-zinc-800'
+              }`}
+            >
+              {view === 'console' ? '← Guest View' : '🎛 DJ Console'}
+            </button>
+          )}
+
           {/* Credit balance */}
           <div className="text-right">
             <p className="text-xs text-zinc-500 leading-none">credits</p>
