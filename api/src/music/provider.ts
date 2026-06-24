@@ -1,5 +1,11 @@
 // Owner: Livingston (real implementations) | Rusty (interface)
-// MusicProvider abstraction — swap stub for Apple Music / Spotify without touching callers.
+// MusicProvider abstraction — swap providers without touching callers (A1).
+//
+// MVP provider is iTunes Search (Apple's public catalog: free, no credentials).
+// Spotify and Apple Music (MusicKit) are interface-ready scaffolds — see
+// spotify.ts / apple.ts. Per D10/O6: Spotify's Web API now requires a Premium
+// account, so the MVP ships on iTunes Search; Spotify/Apple Music are wired in
+// later via the same seam with no caller changes.
 
 export interface Track {
   id:         string;
@@ -10,24 +16,32 @@ export interface Track {
   album:      string;
   artworkUrl: string;
   durationMs: number;
+  /** 30-second preview clip URL, if the provider supplies one. May expire (see cache TTL, #27). */
+  previewUrl: string | null;
 }
 
 export interface MusicProvider {
+  /** Stable provider key, stored on each Track row (e.g. 'itunes', 'spotify', 'apple'). */
+  readonly name: string;
+
   /**
    * Search tracks by query string.
    * Empty query returns a default/featured list.
+   * Results are normalized to Track and cached in the `tracks` table.
    */
   search(query: string, limit?: number): Promise<Track[]>;
+
+  /**
+   * Re-fetch a single track by its provider-native ID (queue hydration / stale
+   * preview re-resolution, #27). Returns null if the provider no longer has it.
+   */
+  resolve(providerId: string): Promise<Track | null>;
 }
 
-// TODO(real provider): A concrete Apple Music or Spotify implementation must supply:
-//   - Server-side developer tokens (Apple: signed MusicKit JWT; Spotify: client_credentials).
-//     Tokens must NEVER be exposed to the client — all catalog calls go through this backend.
-//   - User OAuth tokens where personalized access is needed (Apple Music: MusicKit user token;
-//     Spotify: Authorization Code + PKCE). Token refresh must be handled server-side.
-//   - Rate-limit awareness: Apple Music ~3,000 req/min; Spotify varies (~10–30 req/s per endpoint).
-//     Cache catalog search results (e.g., Redis with short TTL) to avoid burning the quota.
-//   - A `resolve(providerId: string): Promise<Track>` method for queue hydration — when a stored
-//     provider ID needs to be re-fetched (e.g., artwork URL expiry).
-//   - Graceful degradation: if the provider is down, callers should degrade gracefully rather than
-//     surface a 5xx. The stub remains valid as a fallback for local/demo environments.
+/** Thrown when a provider can't be constructed because required env is missing (fail-fast). */
+export class MusicProviderConfigError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'MusicProviderConfigError';
+  }
+}

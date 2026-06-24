@@ -19,5 +19,26 @@ export const cfg = {
   googleRedirectUri:       process.env.GOOGLE_REDIRECT_URI ?? 'http://localhost:3001/api/auth/google/callback',
   // Where to send the browser after a successful login (SPA).
   webBaseUrl:              process.env.WEB_BASE_URL ?? 'http://localhost:5173',
+  // ── Music providers (Epic 5) ───────────────────────────────────────────────
+  // Active provider for catalog search/resolve. 'itunes' (default, no creds),
+  // 'spotify' / 'apple' are scaffolds (require env; fail-fast). 'stub' = DB seed only.
+  musicProvider:           (process.env.MUSIC_PROVIDER ?? 'itunes') as
+                             'itunes' | 'spotify' | 'apple' | 'stub',
+  // Track cache TTL (#27): cached tracks older than this are re-resolved from the
+  // provider to refresh expiring preview URLs. Default 24h.
+  trackCacheTtlMs:         parseInt(process.env.TRACK_CACHE_TTL_MS ?? String(24 * 60 * 60 * 1000), 10),
+  // iTunes Search API (Apple public catalog — free, no credentials).
+  itunesBaseUrl:           process.env.ITUNES_BASE_URL ?? 'https://itunes.apple.com',
+  itunesStorefront:        process.env.ITUNES_STOREFRONT ?? 'US',
+  // Spotify (scaffold — Web API now requires Premium; not wired). Secrets via env only.
+  spotifyClientId:         process.env.SPOTIFY_CLIENT_ID ?? '',
+  spotifyClientSecret:     process.env.SPOTIFY_CLIENT_SECRET ?? '',
+  spotifyTokenUrl:         process.env.SPOTIFY_TOKEN_URL ?? 'https://accounts.spotify.com/api/token',
+  spotifyApiUrl:           process.env.SPOTIFY_API_URL ?? 'https://api.spotify.com/v1',
+  // Apple Music MusicKit (scaffold — fast-follow). Signed JWT dev token inputs; env only.
+  appleMusicTeamId:        process.env.APPLE_MUSIC_TEAM_ID ?? '',
+  appleMusicKeyId:         process.env.APPLE_MUSIC_KEY_ID ?? '',
+  appleMusicPrivateKey:    process.env.APPLE_MUSIC_PRIVATE_KEY ?? '',
+  appleMusicApiUrl:        process.env.APPLE_MUSIC_API_URL ?? 'https://api.music.apple.com/v1',
 } as const;
 
