@@ -1,0 +1,53 @@
+{
+  "agents": {
+    "lead": {
+      "persistent_name": "Rusty",
+      "universe": "Ocean's Eleven",
+      "created_at": "2026-06-23T19:11:15-04:00",
+      "legacy_named": false,
+      "status": "active"
+    },
+    "frontend": {
+      "persistent_name": "Linus",
+      "universe": "Ocean's Eleven",
+      "created_at": "2026-06-23T19:11:15-04:00",
+      "legacy_named": false,
+      "status": "active"
+    },
+    "backend": {
+      "persistent_name": "Basher",
+      "universe": "Ocean's Eleven",
+      "created_at": "2026-06-23T19:11:15-04:00",
+      "legacy_named": false,
+      "status": "active"
+    },
+    "payments": {
+      "persistent_name": "Frank",
+      "universe": "Ocean's Eleven",
+      "created_at": "2026-06-23T19:11:15-04:00",
+      "legacy_named": false,
+      "status": "active"
+    },
+    "music-integration": {
+      "persistent_name": "Livingston",
+      "universe": "Ocean's Eleven",
+      "created_at": "2026-06-23T19:11:15-04:00",
+      "legacy_named": false,
+      "status": "active"
+    },
+    "devops": {
+      "persistent_name": "Virgil",
+      "universe": "Ocean's Eleven",
+      "created_at": "2026-06-23T19:11:15-04:00",
+      "legacy_named": false,
+      "status": "active"
+    },
+    "product": {
+      "persistent_name": "Saul",
+      "universe": "Ocean's Eleven",
+      "created_at": "2026-06-23T19:11:15-04:00",
+      "legacy_named": false,
+      "status": "active"
+    }
+  }
+}

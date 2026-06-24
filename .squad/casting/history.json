@@ -1,0 +1,24 @@
+{
+  "universe_usage_history": [
+    {
+      "universe": "Ocean's Eleven",
+      "assignment_id": "asg-mrdj-20260623-001",
+      "used_at": "2026-06-23T19:11:15-04:00"
+    }
+  ],
+  "assignment_cast_snapshots": {
+    "asg-mrdj-20260623-001": {
+      "universe": "Ocean's Eleven",
+      "agents": {
+        "lead": "Rusty",
+        "frontend": "Linus",
+        "backend": "Basher",
+        "payments": "Frank",
+        "music-integration": "Livingston",
+        "devops": "Virgil",
+        "product": "Saul"
+      },
+      "created_at": "2026-06-23T19:11:15-04:00"
+    }
+  }
+}

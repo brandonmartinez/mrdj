@@ -1,0 +1,27 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: mrdj
+
+labels:
+  - pairs:
+      app: mrdj
+    includeSelectors: true
+
+configMapGenerator:
+  - name: mrdj-configmap
+    envs:
+      - .env
+
+secretGenerator:
+  - name: mrdj-secret
+    envs:
+      - .env.secret.temp
+
+resources:
+  - namespace.yml
+  - deployment.yml
+  - horizontalpodautoscaler.yml
+  - service.yml
+  - ingress.yml
+  - pdb.yml
