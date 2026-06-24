@@ -37,23 +37,24 @@ function svgArtwork(color: string, label: string): string {
   return `data:image/svg+xml;base64,${Buffer.from(svg).toString('base64')}`;
 }
 
-// 15 CC/public-domain tracks (all compositions are in the public domain)
+// 15 public-domain tracks — all compositions PD (composer died >70 years ago; US pub. pre-1928).
+// Artwork: inline SVG data-URIs generated programmatically — no copyrighted images.
 const TRACKS = [
-  { n:  1, color: '#7C3AED', label: 'CL', pid: 'stub-clair-de-lune',        title: 'Clair de Lune',                       artist: 'Claude Debussy',        album: 'Suite bergamasque',            ms: 296000 },
-  { n:  2, color: '#DC2626', label: 'FE', pid: 'stub-fur-elise',             title: 'Für Elise',                           artist: 'Ludwig van Beethoven',  album: 'Bagatelles, Op. 33',           ms: 175000 },
-  { n:  3, color: '#2563EB', label: 'MS', pid: 'stub-moonlight-sonata',      title: 'Moonlight Sonata',                    artist: 'Ludwig van Beethoven',  album: 'Piano Sonata No. 14',          ms: 354000 },
-  { n:  4, color: '#16A34A', label: 'CD', pid: 'stub-canon-in-d',            title: 'Canon in D Major',                    artist: 'Johann Pachelbel',      album: 'Canon and Gigue',              ms: 312000 },
-  { n:  5, color: '#D97706', label: 'FS', pid: 'stub-four-seasons-spring',   title: 'The Four Seasons: Spring',            artist: 'Antonio Vivaldi',       album: 'The Four Seasons',             ms: 185000 },
-  { n:  6, color: '#0891B2', label: 'BD', pid: 'stub-blue-danube',           title: 'The Blue Danube Waltz',               artist: 'Johann Strauss II',     album: 'Waltzes, Op. 314',             ms: 639000 },
-  { n:  7, color: '#6D28D9', label: 'S5', pid: 'stub-symphony-5',            title: 'Symphony No. 5: I. Allegro con brio', artist: 'Ludwig van Beethoven',  album: 'Symphony No. 5',               ms: 432000 },
-  { n:  8, color: '#BE185D', label: 'GS', pid: 'stub-greensleeves',          title: 'Greensleeves',                        artist: 'Traditional',           album: 'English Folk Songs',           ms: 198000 },
-  { n:  9, color: '#065F46', label: 'AG', pid: 'stub-amazing-grace',         title: 'Amazing Grace',                       artist: 'Traditional',           album: 'American Hymns',               ms: 212000 },
-  { n: 10, color: '#92400E', label: 'HA', pid: 'stub-habanera',              title: 'Habanera',                            artist: 'Georges Bizet',         album: 'Carmen',                       ms: 195000 },
-  { n: 11, color: '#1D4ED8', label: 'OJ', pid: 'stub-ode-to-joy',            title: 'Ode to Joy',                          artist: 'Ludwig van Beethoven',  album: 'Symphony No. 9',               ms: 420000 },
-  { n: 12, color: '#6B21A8', label: 'G1', pid: 'stub-gymnopedie-1',          title: 'Gymnopédie No. 1',                    artist: 'Erik Satie',            album: 'Gymnopédies',                  ms: 204000 },
-  { n: 13, color: '#047857', label: 'MK', pid: 'stub-mountain-king',         title: 'In the Hall of the Mountain King',    artist: 'Edvard Grieg',          album: 'Peer Gynt Suite No. 1',        ms: 218000 },
-  { n: 14, color: '#9A3412', label: 'MG', pid: 'stub-minuet-g',              title: 'Minuet in G Major',                   artist: 'Johann Sebastian Bach', album: 'Notebook for Anna Magdalena',  ms: 148000 },
-  { n: 15, color: '#1E40AF', label: 'AV', pid: 'stub-ave-maria',             title: 'Ave Maria',                           artist: 'Franz Schubert',        album: 'Songs and Lieder, Op. 52',     ms: 286000 },
+  { n:  1, color: '#7C3AED', label: 'CL', pid: 'stub-clair-de-lune',        title: 'Clair de Lune',                       artist: 'Claude Debussy',                     album: 'Suite bergamasque',           ms: 296000 }, // PD: Debussy d.1918; first pub. 1905
+  { n:  2, color: '#DC2626', label: 'FE', pid: 'stub-fur-elise',             title: 'Für Elise',                           artist: 'Ludwig van Beethoven',               album: 'Piano Pieces (WoO 59)',        ms: 175000 }, // PD: Beethoven d.1827; first pub. 1867
+  { n:  3, color: '#2563EB', label: 'MS', pid: 'stub-moonlight-sonata',      title: 'Moonlight Sonata',                    artist: 'Ludwig van Beethoven',               album: 'Piano Sonata No. 14',          ms: 354000 }, // PD: Beethoven d.1827; pub. 1802
+  { n:  4, color: '#16A34A', label: 'CD', pid: 'stub-canon-in-d',            title: 'Canon in D Major',                    artist: 'Johann Pachelbel',                   album: 'Canon and Gigue',              ms: 312000 }, // PD: Pachelbel d.1706; c.1694 manuscript
+  { n:  5, color: '#D97706', label: 'FS', pid: 'stub-four-seasons-spring',   title: 'The Four Seasons: Spring',            artist: 'Antonio Vivaldi',                    album: 'The Four Seasons',             ms: 185000 }, // PD: Vivaldi d.1741; pub. 1725
+  { n:  6, color: '#0891B2', label: 'BD', pid: 'stub-blue-danube',           title: 'The Blue Danube Waltz',               artist: 'Johann Strauss II',                  album: 'Waltzes, Op. 314',             ms: 639000 }, // PD: Strauss II d.1899; pub. 1867
+  { n:  7, color: '#6D28D9', label: 'S5', pid: 'stub-symphony-5',            title: 'Symphony No. 5: I. Allegro con brio', artist: 'Ludwig van Beethoven',               album: 'Symphony No. 5',               ms: 432000 }, // PD: Beethoven d.1827; pub. 1809
+  { n:  8, color: '#BE185D', label: 'GS', pid: 'stub-greensleeves',          title: 'Greensleeves',                        artist: 'Traditional',                        album: 'English Folk Songs',           ms: 198000 }, // PD: anonymous/traditional; c.1580 origin
+  { n:  9, color: '#065F46', label: 'AG', pid: 'stub-amazing-grace',         title: 'Amazing Grace',                       artist: 'Traditional',                        album: 'American Hymns',               ms: 212000 }, // PD: words Newton 1779; tune pub. 1835
+  { n: 10, color: '#92400E', label: 'HA', pid: 'stub-habanera',              title: 'Habanera',                            artist: 'Georges Bizet',                      album: 'Carmen',                       ms: 195000 }, // PD: Bizet d.1875; premiered 1875
+  { n: 11, color: '#1D4ED8', label: 'OJ', pid: 'stub-ode-to-joy',            title: 'Ode to Joy',                          artist: 'Ludwig van Beethoven',               album: 'Symphony No. 9',               ms: 420000 }, // PD: Beethoven d.1827; pub. 1824
+  { n: 12, color: '#6B21A8', label: 'G1', pid: 'stub-gymnopedie-1',          title: 'Gymnopédie No. 1',                    artist: 'Erik Satie',                         album: 'Gymnopédies',                  ms: 204000 }, // PD: Satie d.1925; pub. 1888
+  { n: 13, color: '#047857', label: 'MK', pid: 'stub-mountain-king',         title: 'In the Hall of the Mountain King',    artist: 'Edvard Grieg',                       album: 'Peer Gynt Suite No. 1',        ms: 218000 }, // PD: Grieg d.1907; pub. 1876
+  { n: 14, color: '#9A3412', label: 'MG', pid: 'stub-minuet-g',              title: 'Minuet in G Major',                   artist: 'Christian Petzold (attr. J.S. Bach)', album: 'Notebook for Anna Magdalena', ms: 148000 }, // PD: Petzold d.1733; attr. to Bach in 18th-c. manuscript
+  { n: 15, color: '#1E40AF', label: 'AV', pid: 'stub-ave-maria',             title: 'Ave Maria',                           artist: 'Franz Schubert',                     album: 'Songs and Lieder, Op. 52',    ms: 286000 }, // PD: Schubert d.1828; pub. 1825
 ] as const;
 
 // Queue: 4 played (oldest first), 1 playing, 6 pending
