@@ -10,9 +10,11 @@ import { registerRoutes } from './routes.js';
 declare module 'express-session' {
   interface SessionData {
     userId:      string;
-    role:        'guest' | 'admin';
+    role:        'guest' | 'admin' | 'dj';
     type:        'guest' | 'account';
     displayName: string;
+    organizationId?: string;
+    oauthState?: string;
   }
 }
 

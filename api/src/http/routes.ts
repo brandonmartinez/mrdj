@@ -27,6 +27,7 @@ import {
 import {
   listAreasHandler, createAreaHandler, updateAreaHandler, deleteAreaHandler,
 } from '../area/index.js';
+import { loginStartHandler, authCallbackHandler, logoutHandler } from '../auth/index.js';
 
 export function registerRoutes(app: Express) {
   // ── Health ────────────────────────────────────────────────────────────────
@@ -41,6 +42,11 @@ export function registerRoutes(app: Express) {
 
   // ── Identity ──────────────────────────────────────────────────────────────
   app.get('/api/me', asyncHandler(meHandler));
+
+  // ── Auth (Google SSO — Epic 3) ────────────────────────────────────────────
+  app.get('/api/auth/google',          asyncHandler(loginStartHandler));
+  app.get('/api/auth/google/callback', asyncHandler(authCallbackHandler));
+  app.post('/api/auth/logout',         asyncHandler(logoutHandler));
 
   // Dev-only role switcher (disabled in production)
   app.post('/api/dev/act-as', asyncHandler((req, res) => {

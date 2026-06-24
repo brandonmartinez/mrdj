@@ -13,4 +13,11 @@ export const cfg = {
   isDev:                   (process.env.NODE_ENV ?? 'development') === 'development',
   // Demo auto-advance (default off; set AUTO_ADVANCE_INTERVAL_MS=30000 for 30-s demo)
   autoAdvanceIntervalMs:   parseInt(process.env.AUTO_ADVANCE_INTERVAL_MS ?? '0', 10),
+  // Google OAuth2 (Epic 3). Secrets via env only — never committed.
+  googleClientId:          process.env.GOOGLE_CLIENT_ID ?? '',
+  googleClientSecret:      process.env.GOOGLE_CLIENT_SECRET ?? '',
+  googleRedirectUri:       process.env.GOOGLE_REDIRECT_URI ?? 'http://localhost:3001/api/auth/google/callback',
+  // Where to send the browser after a successful login (SPA).
+  webBaseUrl:              process.env.WEB_BASE_URL ?? 'http://localhost:5173',
 } as const;
+
