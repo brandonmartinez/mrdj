@@ -14,6 +14,54 @@ queue and pay to influence what plays next — a jukebox **+** a live DJ.
   available at a time, it isn't always available, and it resets after that song plays.
 - The **DJ/Admin** runs the show from a real-time console: reorder, approve, remove, and play.
 
+## Local Development (devcontainer)
+
+The repo ships a **one-command devcontainer** backed by `docker-compose.yml`. On boot, the
+`app` container installs deps, runs pending migrations, seeds the DB, and starts both the
+API (port 3001) and Vite dev server (port 5173).
+
+### First run (fresh clone)
+
+```bash
+# 1. Copy env vars (defaults work out of the box)
+cp .env.example .env
+
+# 2. Open in VS Code and "Reopen in Container"
+#    — OR launch directly:
+docker compose up
+```
+
+Vite is accessible at **http://localhost:5173**; the API at **http://localhost:3001**.
+
+### Daily use
+
+```bash
+docker compose up          # start (migrate + seed + dev are automatic)
+docker compose down        # stop and remove containers (volumes kept)
+```
+
+### DB reset (nuke and re-seed)
+
+```bash
+# From the running app container (VS Code terminal) or via exec:
+npm run db:reset           # drops tables, re-runs migrations, re-seeds
+# Equivalent via docker exec:
+docker compose exec app npm run db:reset
+```
+
+### Environment variables
+
+| Variable | Default | Notes |
+|---|---|---|
+| `DATABASE_URL` | `postgresql://mrdj:mrdj@localhost:5432/mrdj` | Inside container: `@db:5432` (compose injects this) |
+| `POSTGRES_USER` / `_PASSWORD` / `_DB` | `mrdj` | Postgres service credentials |
+| `PORT` | `3001` | API listen port |
+| `SESSION_SECRET` | `dev-secret-change-in-prod` | **Change this in production** |
+
+> **Note:** `.env` is gitignored. Only `.env.example` is tracked. Never commit a real secret.
+
+---
+
 ## Status
 
 🚧 **Early setup / MVP foundation.** Requirements and team are in place; implementation is

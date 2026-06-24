@@ -5,7 +5,7 @@
   "workspaceFolder": "/workspace",
   "features": {},
   "forwardPorts": [3001, 5173, 5432],
-  "postCreateCommand": "npm install && npm run db:migrate && npm run db:seed",
+  "postCreateCommand": "npm install",
   "remoteUser": "node",
   "customizations": {
     "vscode": {
