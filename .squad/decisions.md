@@ -60,6 +60,16 @@
 **Why:** Unblocks Epics 2 (#6) and 4 (#8) and their stories; closes decision spikes #96–#103. O2, O5, O6, O7 remain open (tracked in Epic 10 #14).
 **Doc:** `.squad/decisions.md` O8–O16 (now ✅ RESOLVED).
 
+### 2026-06-24 — D10: Remaining MVP open decisions confirmed (O2, O5, O6, O7)
+**Decision:** The project owner confirmed:
+- **O2 — Normal request cost = FREE (0 credits) platform default.** "Add to Queue" stays free; abuse controlled by per-guest/session rate limiting, dedup of identical pending requests, and DJ moderation (reorder/remove/reject). Per-Organization override (O9) may set a low cost. Consistent with D4/D6 and shipped slice-01/02.
+- **O5 — k8s manifests = cluster infrastructure repo canonical** (Virgil's recommendation). Keep a validated skeleton in `mrdj/k8s/` for reference/local; promote to the cluster repo for deployment; secrets via the cluster repo's gitignored `.env.secret.temp`. mrdj stays a single deployment — tenancy is app-level (`/o/{slug}` + `organization_id`), no per-tenant infra.
+- **O6 — Music = Spotify first** (MVP) behind the provider-agnostic `Track` abstraction (A1); **Apple Music** as a fast follow; **far-future backlog:** a **Serato + Rekordbox** companion client app that reads the DJ's local libraries and syncs upward. Provider is the search/catalog source, not playback.
+- **O7 — Refund/dispute policy (MVP):** in-app credit auto-return (slice-02 + O18 P1-A) is the primary remedy; **purchased credits are non-refundable to card by default, disclosed at checkout**; **money refunds** only for genuine failures (duplicate/erroneous charge, undelivered service), **initiated by the DJ Organization** via Stripe with the platform **application fee reversed proportionally** (`refund_application_fee`); guest credits non-refundable (event/session-scoped, disclosed); `charge.dispute.created` flags the org account + notifies the platform (respond with ledger evidence); **self-serve unused-credit refunds deferred post-MVP** (Rai's broader proposal, revisited once volume/abuse is known).
+**By:** the project owner (Brandon) — confirmed. **Owners:** Frank (O2 pricing default + O7 refunds/Connect), Virgil (O5 infra), Livingston (O6 providers), Saul (O2/O6/O7 scope).
+**Why:** Closes the remaining open product/infra decisions, unblocking the music epic and ops/deploy work and completing Epic 10 (#14). O2 aligns with D4/D6 + per-org O9; O5 matches the reference-app pattern; O6 minimizes MVP surface via the existing Track seam; O7 is marketplace-correct (proportional fee reversal) and fairness-preserving (in-app auto-return) while limiting money-refund/dispute exposure.
+**Docs:** `.squad/decisions.md` O2/O5/O6/O7 (now ✅ RESOLVED); Serato/Rekordbox tracked on the future backlog (Epic 11, #15).
+
 ### 2026-06-23 — A1: Architecture baseline v0 (MVP)
 **Decision:** Core entities (User, Event, Queue, QueueItem, Track, Wallet, CreditTransaction, PlayNextSlot) defined. Play Next state machine: `available` → `locked` → `cooldown` → `available`; single purchasable at a time; resets AFTER bumped song plays; concurrency via row-level lock. Credits-ledger contract seam named `CreditsService` (idempotent, append-only). Up Next vs Play Next distinguished. Module layout: identity, event, queue, credits, payments, music, realtime, admin.
 **By:** Rusty (architect). **Owners:** Rusty, Basher (queue/state machine), Frank (credits ledger consumer).
@@ -95,29 +105,32 @@
 **Owner:** Frank (payments/credits), Basher (ledger interface), Linus (checkout UX). **Input:** Saul (product).
 **Doc:** `docs/decisions/payments-provider.md`
 
-### O2 — Normal request cost ⏳
+### O2 — Normal request cost ✅
 **Question:** Is adding a normal request free or low-cost? Affects pricing and abuse control.
-**Owner:** Saul + Frank. **Status:** OPEN.
+**Resolution (2026-06-24):** **FREE (0 credits)** platform default; abuse via rate-limit + dedup + DJ moderation; per-org override via O9. Owner confirmed — see D10.
+**Owner:** Saul + Frank. **Status:** ✅ RESOLVED.
 
 ### O4 — Dedicated QA agent? ⏳
 **Question:** Add a dedicated Tester/QA agent now, or keep testing as an implementer-owned discipline gated by Rusty (current default)?
 **Owner:** Squad + the project owner. **Status:** OPEN — defaulting to implementer-owned + review gate for MVP. Casting headroom exists (Ocean's Eleven, capacity 14).
 
-### O5 — Where do mrdj k8s manifests live? ⏳
+### O5 — Where do mrdj k8s manifests live? ✅
 **Question:** In this repo (`mrdj/k8s/`) or in the cluster infrastructure repo alongside the reference app?
-**Recommendation (2026-06-23, Virgil):** **Cluster repo canonical** (the cluster infrastructure repo, under its mrdj resource path). Rationale: single source of truth for cluster state (already proven with the reference app), clean separation (app code in mrdj repo, deployment in cluster repo), straightforward promotion workflow (author skeleton in `mrdj/k8s/`, validate, copy to cluster repo post-launch). Secret management via cluster repo gitignored `.env.secret.temp` files. **Status:** PROPOSED — pending the project owner / Squad confirmation.
+**Recommendation (2026-06-23, Virgil):** **Cluster repo canonical** (the cluster infrastructure repo, under its mrdj resource path). Rationale: single source of truth for cluster state (already proven with the reference app), clean separation (app code in mrdj repo, deployment in cluster repo), straightforward promotion workflow (author skeleton in `mrdj/k8s/`, validate, copy to cluster repo post-launch). Secret management via cluster repo gitignored `.env.secret.temp` files. **Status:** ✅ RESOLVED (2026-06-24) — owner confirmed Virgil's recommendation as-is; see D10.
 **Owner:** Virgil (infra). 
 **Doc:** Skeleton in `k8s/` (this repo); promotion documented in virgil-infra-confirmations.md.
 
-### O6 — Music provider MVP scope ⏳
+### O6 — Music provider MVP scope ✅
 **Question:** Launch with both Apple Music AND Spotify, or one first behind a normalized Track abstraction?
-**Owner:** Livingston + Saul. **Status:** OPEN.
+**Resolution (2026-06-24):** **Spotify first** behind the `Track` abstraction; **Apple Music** fast-follow; far-future backlog: **Serato + Rekordbox** companion app reading the DJ's local libraries. Owner confirmed — see D10 / Epic 11 (#15).
+**Owner:** Livingston + Saul. **Status:** ✅ RESOLVED.
 
-### O7 — Refund / dispute policy ⏳
+### O7 — Refund / dispute policy ✅
 **Question:** How are credits and Play Next purchases refunded? When? Who gets a refund?
 **Partially resolved (2026-06-24, Coordinator):** For slice-02, admin remove/reject of a **pending** queue item with paid spend (Boost or Play Next) and not yet played auto-refunds the exact credits spent through an append-only `refund` ledger entry using idempotency key `refund-<queueItemId>`. If the removed item is the Play Next holder, reset `play_next_slot` to available. Normal advance/skip does **not** refund; free removals have nothing to refund. Requests remain auto-approved; DJ moderation is reorder/remove/reject, not a pre-play approval queue.
 **Remaining proposal (2026-06-23, Rai):** Account holders can request refund for unused credits within 30 days of purchase; guest sessions are non-refundable and disclosed at checkout; refund policy UI should be linked from checkout/profile/FAQ; Stripe `charge.dispute.created` should flag accounts for review. Production real-money policy still needs final owner/Frank/Saul resolution.
-**Owner:** Frank (payments/refunds) + Saul (scope/policy). **Input:** Linus (UI), Basher (admin module). **Status:** PARTIALLY RESOLVED / OPEN.
+**Resolution (2026-06-24):** MVP policy confirmed — in-app credit auto-return is primary; purchased credits non-refundable to card (disclosed at checkout); money refunds case-by-case by the DJ Organization for genuine failures with proportional application-fee reversal; guest credits non-refundable; disputes flag the org account; self-serve unused-credit refunds deferred post-MVP. See D10.
+**Owner:** Frank (payments/refunds) + Saul (scope/policy). **Input:** Linus (UI), Basher (admin module). **Status:** ✅ RESOLVED.
 **RAI reasoning:** Fairness + transparency trust builder. Dark-pattern avoidance. Chargeback economics: $15 fee per dispute vs $0 ledger entry for refund.
 
 ### O8 — Credit/wallet scope ✅
