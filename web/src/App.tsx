@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { api } from './api.ts';
 import type { MeResponse, QueueView, Track, Bundle } from './api.ts';
-import { useQueuePolling } from './hooks/useQueuePolling.ts';
+import { useQueueStream } from './hooks/useQueueStream.ts';
 import { useDebounced } from './hooks/useDebounced.ts';
 import { Header } from './components/Header.tsx';
 import { CoverFlow } from './components/CoverFlow.tsx';
@@ -9,7 +9,7 @@ import { SearchBar } from './components/SearchBar.tsx';
 import { TrackRow } from './components/TrackRow.tsx';
 import { ConfirmModal } from './components/ConfirmModal.tsx';
 import type { PendingAction } from './components/ConfirmModal.tsx';
-import { AdminPanel } from './components/AdminPanel.tsx';
+import { AdminConsole } from './components/AdminConsole.tsx';
 import { Toast } from './components/Toast.tsx';
 import type { ToastState } from './components/Toast.tsx';
 
@@ -32,6 +32,9 @@ export default function App() {
 
   // Modal state
   const [pendingAction, setPendingAction] = useState<PendingAction | null>(null);
+
+  // Admin view toggle: guest jukebox vs DJ console (no router — in-app view state).
+  const [view, setView] = useState<'guest' | 'console'>('guest');
 
   // Toast
   const toastCounter = useRef(0);
@@ -61,14 +64,14 @@ export default function App() {
     void init();
   }, []);
 
-  // ── Queue polling ────────────────────────────────────────────────────────────
+  // ── Queue realtime (SSE + fallback poll) ─────────────────────────────────────
   const handleQueueUpdate = useCallback((view: QueueView) => {
     setQueueView(view);
     setCreditBalance(view.creditBalance);
     setLoading(false);
   }, []);
 
-  useQueuePolling(EVENT_SLUG, handleQueueUpdate);
+  useQueueStream(EVENT_SLUG, handleQueueUpdate);
 
   // ── Search ──────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -99,6 +102,7 @@ export default function App() {
       setMe(meData);
       if (role === 'guest') {
         guestUserIdRef.current = meData.user.id;
+        setView('guest'); // guests never see the console
       }
       // Immediately refresh balance from a fresh queue poll
       const qData = await api.queue(EVENT_SLUG);
@@ -171,9 +175,32 @@ export default function App() {
         role={me?.user.role ?? 'guest'}
         creditBalance={creditBalance}
         onRoleSwitch={handleRoleSwitch}
+        view={view}
+        onToggleView={() => setView((v) => (v === 'console' ? 'guest' : 'console'))}
       />
 
-      {/* Main content — padded below fixed header */}
+      {/* ── DJ Console (admin-only view) ──────────────────────────── */}
+      {isAdmin && view === 'console' && queueView ? (
+        <main
+          style={{ paddingTop: 'calc(var(--header-h, 64px) + 16px)' }}
+          className="max-w-3xl mx-auto pb-24"
+        >
+          <AdminConsole
+            eventSlug={EVENT_SLUG}
+            queueView={queueView}
+            guestUserId={guestUserIdRef.current}
+            onQueueUpdated={(v) => { setQueueView(v); setCreditBalance(v.creditBalance); }}
+            onCreditsGranted={() => {
+              // A console grant targets another user (usually the guest); it does NOT change the
+              // admin's own wallet. Re-fetch /me so the header always reflects the admin's true
+              // balance instead of momentarily showing the grantee's.
+              void api.me().then((m) => setCreditBalance(m.creditBalance)).catch(() => {});
+            }}
+            showToast={showToast}
+          />
+        </main>
+      ) : (
+      /* Main content — padded below fixed header */
       <main
         style={{ paddingTop: 'calc(var(--header-h, 64px) + 16px)' }}
         className="max-w-3xl mx-auto pb-24"
@@ -189,9 +216,11 @@ export default function App() {
         {queueView && (
           <div className="mx-4 mb-6 flex items-center justify-between bg-zinc-900/60 border border-zinc-800 rounded-xl px-4 py-3">
             <div className="flex items-center gap-2">
-              <span className="text-yellow-400 text-sm">★</span>
+              <span className="text-yellow-400 text-sm" aria-hidden>★</span>
               <span className="text-zinc-300 text-sm font-medium">Play Next</span>
-              <span className={`text-xs px-2 py-0.5 rounded-full font-semibold ${
+              <span
+                aria-label={`Play Next slot is ${queueView.playNext.status}`}
+                className={`text-xs px-2 py-0.5 rounded-full font-semibold ${
                 queueView.playNext.status === 'available'
                   ? 'bg-green-900/50 text-green-400'
                   : queueView.playNext.status === 'locked'
@@ -205,24 +234,6 @@ export default function App() {
               {queueView.pricing.playNext}cr
             </span>
           </div>
-        )}
-
-        {/* ── Admin panel ──────────────────────────────────────────── */}
-        {isAdmin && queueView && (
-          <section aria-label="Admin controls" className="mb-6">
-            <AdminPanel
-              guestUserId={guestUserIdRef.current}
-              eventSlug={EVENT_SLUG}
-              onCreditsGranted={(balance) => {
-                setCreditBalance(balance);
-              }}
-              onQueueAdvanced={(view) => {
-                setQueueView(view);
-                setCreditBalance(view.creditBalance);
-              }}
-              showToast={showToast}
-            />
-          </section>
         )}
 
         {/* ── Search ───────────────────────────────────────────────── */}
@@ -296,6 +307,7 @@ export default function App() {
           )}
         </section>
       </main>
+      )}
 
       {/* ── Confirm / buy modal ──────────────────────────────────── */}
       {pendingAction && queueView && (

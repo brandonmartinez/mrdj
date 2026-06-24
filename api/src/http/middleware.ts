@@ -1,5 +1,5 @@
 // Owner: Rusty (middleware)
-import type { Request, Response, NextFunction } from 'express';
+import type { Request, Response, NextFunction, RequestHandler } from 'express';
 
 // Seeded guest user (stable ID matching seed.ts)
 export const SEED_IDS = {
@@ -36,7 +36,8 @@ export type ApiError =
   | 'play_next_unavailable'
   | 'forbidden'
   | 'not_found'
-  | 'validation';
+  | 'validation'
+  | 'internal';
 
 export function sendError(
   res: Response,
@@ -46,4 +47,17 @@ export function sendError(
   extra?: Record<string, unknown>,
 ) {
   res.status(status).json({ error: { code, message, ...extra } });
+}
+
+/**
+ * Wrap an async route handler so a rejected promise is routed to Express' error
+ * middleware instead of becoming an unhandled rejection. Express 4 does NOT catch
+ * async throws on its own — without this, a transient DB error inside a handler
+ * crashes the process (the slice-01 footgun). Pair with the terminal error
+ * middleware registered in server.ts.
+ */
+export function asyncHandler(fn: RequestHandler): RequestHandler {
+  return (req, res, next) => {
+    Promise.resolve(fn(req, res, next)).catch(next);
+  };
 }

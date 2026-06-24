@@ -99,12 +99,14 @@ async function resetState() {
      WHERE event_id = $1`,
     [DEMO_EVENT],
   );
-  // Remove queue items added by tests (preserve seeded items — their IDs start with
-  // '00000000-0000-0000-0000-00000000020x')
+  // Remove queue items added by tests (preserve ALL seeded items — their IDs start with
+  // '00000000-0000-0000-0000-0000000002xx'). NOTE: the pattern must be '...0000000002%' (10 twos-
+  // prefix digits) so it preserves 210 and 211; the narrower '...00000000020%' wrongly deletes
+  // them and breaks cross-file runs where this file resets before console.test.ts.
   await db.query(
     `DELETE FROM queue_items
      WHERE event_id = $1
-       AND id::text NOT LIKE '00000000-0000-0000-0000-00000000020%'`,
+       AND id::text NOT LIKE '00000000-0000-0000-0000-0000000002%'`,
     [DEMO_EVENT],
   );
   // Restore seeded pending queue items to original positions
