@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { and, eq } from 'drizzle-orm';
 import { db, creditBundles, creditTransactions, wallets } from '../db/index.js';
 import { grantCredits } from '../credits/service.js';
+import { getDefaultOrgId } from '../org/index.js';
 import type { PaymentProvider, CheckoutSession, CheckoutResult } from './provider.js';
 
 // In-memory session store — stub only.
@@ -61,7 +62,9 @@ export class StubPaymentProvider implements PaymentProvider {
     }
 
     // Grant correct credits from the bundle (not a hardcoded amount)
-    const result = await grantCredits(userId, meta.credits, 'purchase', idempotencyKey);
+    const organizationId = await getDefaultOrgId();
+    if (!organizationId) throw new Error('No organization configured');
+    const result = await grantCredits(userId, organizationId, meta.credits, 'purchase', idempotencyKey);
 
     // Remove session after a successful grant.  The idempotency key in credit_transactions
     // is now the durable replay guard (see the `!meta` branch above).

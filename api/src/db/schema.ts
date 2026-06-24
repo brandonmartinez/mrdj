@@ -73,6 +73,7 @@ export const events = pgTable('events', {
   slug: text('slug').notNull().unique(),
   name: text('name').notNull(),
   ownerId: uuid('owner_id').notNull().references(() => accounts.id),
+  organizationId: uuid('organization_id').notNull().references(() => organizations.id),
   status: text('status').notNull().default('draft'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   startedAt: timestamp('started_at', { withTimezone: true }),
@@ -113,6 +114,7 @@ export const tracks = pgTable('tracks', {
 export const queueItems = pgTable('queue_items', {
   id: uuid('id').primaryKey().defaultRandom(),
   eventId: uuid('event_id').notNull().references(() => events.id, { onDelete: 'cascade' }),
+  areaId: uuid('area_id').notNull().references(() => areas.id, { onDelete: 'cascade' }),
   trackId: uuid('track_id').notNull().references(() => tracks.id),
   requesterId: uuid('requester_id').notNull().references(() => users.id),
   position: integer('position').notNull().default(0),
@@ -128,6 +130,7 @@ export const queueItems = pgTable('queue_items', {
 // Single-resource Play Next lock per event (see docs/ARCHITECTURE.md §2)
 export const playNextSlot = pgTable('play_next_slot', {
   eventId: uuid('event_id').primaryKey().references(() => events.id, { onDelete: 'cascade' }),
+  areaId: uuid('area_id').notNull().unique().references(() => areas.id, { onDelete: 'cascade' }),
   status: text('status').notNull().default('available'),
   holderQueueItemId: uuid('holder_queue_item_id').references(() => queueItems.id),
   lockedAt: timestamp('locked_at', { withTimezone: true }),
@@ -136,10 +139,13 @@ export const playNextSlot = pgTable('play_next_slot', {
   check('play_next_slot_status_check', sql`${t.status} IN ('available', 'locked', 'cooldown')`),
 ]);
 
-// slice-01 deviation: wallet per user_id (not account_id) to support guest wallets
+// slice-01 deviation: wallet per user_id (not account_id) to support guest wallets.
+// MVP keeps wallets unique on user_id (one org); organization_id is stamped for
+// tenant accounting and forward-compat (per-org balances land with Epic 4).
 export const wallets = pgTable('wallets', {
   id: uuid('id').primaryKey().defaultRandom(),
   userId: uuid('user_id').notNull().unique().references(() => users.id, { onDelete: 'cascade' }),
+  organizationId: uuid('organization_id').notNull().references(() => organizations.id),
   balance: integer('balance').notNull().default(0),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
@@ -150,6 +156,7 @@ export const wallets = pgTable('wallets', {
 export const creditTransactions = pgTable('credit_transactions', {
   id: uuid('id').primaryKey().defaultRandom(),
   userId: uuid('user_id').notNull().references(() => users.id),
+  organizationId: uuid('organization_id').notNull().references(() => organizations.id),
   type: text('type').notNull(),
   amount: integer('amount').notNull(),
   reason: text('reason').notNull(),

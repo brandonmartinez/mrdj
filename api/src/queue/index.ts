@@ -320,6 +320,7 @@ export async function createRequestHandler(req: Request, res: Response) {
       const [inserted] = await tx.insert(queueItems)
         .values({
           eventId:     event.id,
+          areaId:      event.default_area_id,
           trackId,
           requesterId: userId,
           position:    insertPosition,
@@ -334,6 +335,7 @@ export async function createRequestHandler(req: Request, res: Response) {
       // reference_id links back to the queue_item for retry reconstruction.
       await tx.insert(creditTransactions).values({
         userId,
+        organizationId: event.organization_id,
         type:        'spend',
         amount:      cost,
         reason:      tier,
@@ -516,6 +518,7 @@ export interface RemoveResult {
  */
 export async function removeQueueItem(
   eventId:     string,
+  organizationId: string,
   queueItemId: string,
   adminUserId: string,
 ): Promise<RemoveResult> {
@@ -577,6 +580,7 @@ export async function removeQueueItem(
     if (spendAmount > 0) {
       await refundCredits(
         item.requesterId,
+        organizationId,
         spendAmount,
         'refund',
         `refund-${queueItemId}`,

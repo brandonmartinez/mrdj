@@ -17,6 +17,7 @@ export interface CreditsResult {
  */
 export async function grantCredits(
   userId:         string,
+  organizationId: string,
   amount:         number,
   reason:         string,
   idempotencyKey: string,
@@ -36,12 +37,12 @@ export async function grantCredits(
 
     const [txRow] = await ex
       .insert(creditTransactions)
-      .values({ userId, type: 'grant', amount, reason, idempotencyKey, actorId: actorId ?? null })
+      .values({ userId, organizationId, type: 'grant', amount, reason, idempotencyKey, actorId: actorId ?? null })
       .returning({ id: creditTransactions.id });
 
     const [walletRow] = await ex
       .insert(wallets)
-      .values({ userId, balance: amount })
+      .values({ userId, organizationId, balance: amount })
       .onConflictDoUpdate({
         target: wallets.userId,
         set:    { balance: sql`${wallets.balance} + ${amount}`, updatedAt: sql`now()` },
@@ -91,6 +92,7 @@ export interface RefundResult extends CreditsResult {
  */
 export async function refundCredits(
   userId:         string,
+  organizationId: string,
   amount:         number,
   reason:         string,
   idempotencyKey: string,
@@ -111,12 +113,12 @@ export async function refundCredits(
 
     const [txRow] = await ex
       .insert(creditTransactions)
-      .values({ userId, type: 'refund', amount, reason, idempotencyKey, referenceId: referenceId ?? null, actorId: actorId ?? null })
+      .values({ userId, organizationId, type: 'refund', amount, reason, idempotencyKey, referenceId: referenceId ?? null, actorId: actorId ?? null })
       .returning({ id: creditTransactions.id });
 
     const [walletRow] = await ex
       .insert(wallets)
-      .values({ userId, balance: amount })
+      .values({ userId, organizationId, balance: amount })
       .onConflictDoUpdate({
         target: wallets.userId,
         set:    { balance: sql`${wallets.balance} + ${amount}`, updatedAt: sql`now()` },

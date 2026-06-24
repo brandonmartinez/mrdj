@@ -15,6 +15,13 @@
       "when": 1782324346098,
       "tag": "0001_org_membership_area",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1782324621751,
+      "tag": "0002_tenant_columns",
+      "breakpoints": true
     }
   ]
 }

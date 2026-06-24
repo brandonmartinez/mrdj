@@ -123,6 +123,7 @@ async function seed() {
         slug:      'demo',
         name:      "The Ocean's Eleven After Party",
         ownerId:   IDS.adminAccount,
+        organizationId: IDS.defaultOrg,
         status:    'live',
         startedAt: sql`now()`,
       }).onConflictDoNothing({ target: events.id });
@@ -155,6 +156,7 @@ async function seed() {
         QUEUE_ITEMS.map((qi) => ({
           id:          queueId(qi.n),
           eventId:     IDS.demoEvent,
+          areaId:      IDS.demoArea,
           trackId:     trackId(qi.trackN),
           requesterId: IDS.guestUser,
           position:    qi.position,
@@ -167,19 +169,21 @@ async function seed() {
       // Play Next slot — available on boot
       await tx.insert(playNextSlot).values({
         eventId: IDS.demoEvent,
+        areaId:  IDS.demoArea,
         status:  'available',
       }).onConflictDoNothing({ target: playNextSlot.eventId });
 
       // Wallets: guest=2 credits (free Add works, Boost=1 works once, Play Next=3 → triggers buy-more)
       await tx.insert(wallets).values([
-        { id: IDS.guestWallet, userId: IDS.guestUser, balance: 2 },
-        { id: IDS.adminWallet, userId: IDS.adminUser, balance: 100 },
+        { id: IDS.guestWallet, userId: IDS.guestUser, organizationId: IDS.defaultOrg, balance: 2 },
+        { id: IDS.adminWallet, userId: IDS.adminUser, organizationId: IDS.defaultOrg, balance: 100 },
       ]).onConflictDoNothing({ target: wallets.id });
 
       // Credit ledger entry for guest initial balance (idempotency_key prevents re-grant)
       await tx.insert(creditTransactions).values({
         id:             IDS.ctGuestInit,
         userId:         IDS.guestUser,
+        organizationId: IDS.defaultOrg,
         type:           'grant',
         amount:         2,
         reason:         'promo',

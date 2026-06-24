@@ -3,6 +3,7 @@ import type { Request, Response } from 'express';
 import { eq } from 'drizzle-orm';
 import { db, users } from '../db/index.js';
 import { grantCredits } from '../credits/service.js';
+import { getDefaultOrgId } from '../org/index.js';
 import { getEventBySlug } from '../event/index.js';
 import {
   advanceQueue,
@@ -45,9 +46,15 @@ export async function adminGrantHandler(req: Request, res: Response) {
   const adminUserId = req.session.userId!;
   const reason      = note ? `admin_grant: ${note}` : 'admin_grant';
 
+  const organizationId = await getDefaultOrgId();
+  if (!organizationId) {
+    sendError(res, 500, 'internal', 'No organization configured');
+    return;
+  }
+
   // CreditsService.grantCredits handles the transaction + idempotency internally.
   // actor_id = admin user ID creates the audit trail (MC-08, MC-09).
-  const result = await grantCredits(targetUserId, amount, reason, idempotencyKey, adminUserId);
+  const result = await grantCredits(targetUserId, organizationId, amount, reason, idempotencyKey, adminUserId);
 
   // The grant changes the target's balance (shown in their queue view) — signal all
   // streams so the affected guest re-fetches their own per-user view immediately.
@@ -108,7 +115,7 @@ export async function adminRemoveHandler(req: Request, res: Response) {
   }
 
   try {
-    const { queueView, refund } = await removeQueueItem(event.id, queueItemId, req.session.userId!);
+    const { queueView, refund } = await removeQueueItem(event.id, event.organization_id, queueItemId, req.session.userId!);
     res.json({ queueView, refund });
   } catch (err) {
     if (err instanceof QueueError) {
