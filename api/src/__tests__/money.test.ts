@@ -415,6 +415,69 @@ describe('MC-10 · Stub checkout grant shape', () => {
     expect(row.rows[0].amount).toBe(5);
     expect(row.rows[0].idempotency_key).toBe(idemKey);
   });
+
+  // Frank (audit fix): BUG-2 — stub-complete retry after session consumed must return
+  // the prior balance (200), not a 400 "session not found".
+  it('stub-complete replay with same idempotencyKey returns prior balance, not 400', async () => {
+    const sr = await apiCall('POST', '/checkout/session', {
+      bundleId: '00000000-0000-0000-0000-000000000040', // 5 credits
+    }, guestCookie);
+    expect(sr.status).toBe(200);
+    const { sessionId } = sr.body as { sessionId: string };
+    const idemKey = `mc10-replay-${uuid()}`;
+
+    // First call — consumes the session
+    const cr1 = await apiCall('POST', '/checkout/stub-complete', {
+      sessionId,
+      idempotencyKey: idemKey,
+    }, guestCookie);
+    expect(cr1.status).toBe(200);
+    const bal1 = (cr1.body as { creditBalance: number }).creditBalance;
+
+    // Retry with the exact same sessionId + idempotencyKey
+    const cr2 = await apiCall('POST', '/checkout/stub-complete', {
+      sessionId,
+      idempotencyKey: idemKey,
+    }, guestCookie);
+    expect(cr2.status).toBe(200); // must not be 400
+    expect((cr2.body as { creditBalance: number }).creditBalance).toBe(bal1);
+
+    // Exactly one grant row — no double-credit
+    const rows = await db.query(
+      `SELECT id FROM credit_transactions WHERE idempotency_key = $1`,
+      [idemKey],
+    );
+    expect(rows.rows).toHaveLength(1);
+  });
+});
+
+// Frank (audit fix): BUG-1 — concurrent duplicate idempotency key for boost/queue
+// tiers must not 500.  FOR UPDATE protects play_next; boost/queue use a post-error
+// recovery to return the prior result when Postgres raises 23505.
+describe('Frank-BUG1 · Concurrent duplicate idempotency key — no 500', () => {
+  beforeEach(resetState);
+
+  it('two simultaneous boost requests with the same key both return 2xx and produce one ledger row', async () => {
+    const key = `bug1-concurrent-${uuid()}`;
+    const body = { trackId: TRACK_G1, tier: 'boost', idempotencyKey: key };
+
+    // Fire both at the same time to maximise the chance of hitting the race window.
+    const [r1, r2] = await Promise.all([
+      apiCall('POST', '/events/demo/requests', body, guestCookie),
+      apiCall('POST', '/events/demo/requests', body, guestCookie),
+    ]);
+
+    // Neither should be a 500; both should be a success or a recognised non-500
+    expect(r1.status).not.toBe(500);
+    expect(r2.status).not.toBe(500);
+
+    // Exactly one ledger row regardless of concurrency
+    const txRows = await db.query(
+      `SELECT id FROM credit_transactions WHERE idempotency_key = $1`,
+      [key],
+    );
+    expect(txRows.rows).toHaveLength(1);
+  });
 });
 
 describe('Admin advance — resets Play Next slot, no refund', () => {

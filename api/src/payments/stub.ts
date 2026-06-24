@@ -35,12 +35,32 @@ export class StubPaymentProvider implements PaymentProvider {
     userId:         string,
   ): Promise<CheckoutResult> {
     const meta = stubSessions.get(sessionId);
-    if (!meta) throw new Error(`Session '${sessionId}' not found — may have already been completed`);
+
+    if (!meta) {
+      // Session was already consumed by a prior successful call.  Per the idempotency
+      // contract, a retry with the *same* idempotencyKey must return the prior result
+      // rather than a 4xx.  Check the ledger: if this key was already processed for this
+      // user, return the current balance (no second grant — CreditsService already
+      // prevented it via the UNIQUE constraint).
+      const existing = await pool.query(
+        `SELECT id FROM credit_transactions WHERE idempotency_key = $1 AND user_id = $2`,
+        [idempotencyKey, userId],
+      );
+      if (existing.rows[0]) {
+        const balRow = await pool.query(
+          'SELECT balance FROM wallets WHERE user_id = $1',
+          [userId],
+        );
+        return { creditBalance: balRow.rows[0]?.balance ?? 0 };
+      }
+      throw new Error(`Session '${sessionId}' not found — may have already been completed`);
+    }
 
     // Grant correct credits from the bundle (not a hardcoded amount)
     const result = await grantCredits(userId, meta.credits, 'purchase', idempotencyKey);
 
-    // Clean up session after successful grant (idempotency key prevents re-grant on replay)
+    // Remove session after a successful grant.  The idempotency key in credit_transactions
+    // is now the durable replay guard (see the `!meta` branch above).
     stubSessions.delete(sessionId);
 
     return { creditBalance: result.newBalance };

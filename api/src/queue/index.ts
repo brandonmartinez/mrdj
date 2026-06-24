@@ -373,6 +373,46 @@ export async function createRequestHandler(req: Request, res: Response) {
     });
   } catch (err) {
     await c.query('ROLLBACK').catch(() => {});
+
+    // Race-safe idempotency recovery (Postgres 23505 = unique_violation):
+    // Two concurrent requests with the same idempotency key can both pass the
+    // SELECT idempotency check before either commits, then race on the INSERT.
+    // Only play_next is serialised by FOR UPDATE; boost/queue have no row lock.
+    // When the loser gets 23505, recover gracefully by returning the prior result
+    // rather than propagating a 500.  No double-charge ever occurs (the UNIQUE
+    // constraint guarantees exactly one ledger row).
+    if ((err as { code?: string }).code === '23505' && idempotencyKey) {
+      try {
+        const existingTx = await pool.query(
+          `SELECT id, reference_id FROM credit_transactions WHERE idempotency_key = $1`,
+          [idempotencyKey],
+        );
+        if (existingTx.rows[0]) {
+          const existingQueueItemId: string = existingTx.rows[0].reference_id;
+          const [queueItemRes, queueView, walletRow] = await Promise.all([
+            pool.query(
+              `SELECT qi.id, qi.status, qi.position, qi.is_play_next, qi.requester_id,
+                      t.id AS track_id, t.provider, t.provider_id, t.title, t.artist,
+                      t.album, t.artwork_url, t.duration_ms
+               FROM queue_items qi JOIN tracks t ON t.id = qi.track_id
+               WHERE qi.id = $1`,
+              [existingQueueItemId],
+            ),
+            buildQueueView(event.id, userId),
+            pool.query('SELECT balance FROM wallets WHERE user_id = $1', [userId]),
+          ]);
+          res.status(200).json({
+            queueItem:     queueItemRes.rows[0] ? rowToQueueItem(queueItemRes.rows[0]) : null,
+            creditBalance: walletRow.rows[0]?.balance ?? 0,
+            queueView,
+          });
+          return;
+        }
+      } catch {
+        // Recovery query itself failed; fall through and re-throw the original error.
+      }
+    }
+
     throw err;
   } finally {
     c.release();
