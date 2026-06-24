@@ -60,3 +60,28 @@
 - Idempotent, append-only ledger. Your responsibility: webhook parsing, grant calls, transaction logging.
 
 **Status:** O1 ready for the project owner confirmation. O7 open; ready to draft policy spec once confirmed. No code yet; timely to finalize policies pre-integration.
+
+## 2026-06-23 — Maker≠Checker Audit of Basher's Slice-01 Money Paths
+
+**Commit:** `d7dc263`
+
+**Scope audited:** `createRequestHandler`, `checkoutCompleteHandler`, `adminGrantHandler`, `advanceQueue` — plus migration schema, credits service, and stub payment provider.
+
+**Checklist results (1–8):**
+1. ✅ **Atomicity** — All paid paths use explicit BEGIN/COMMIT/ROLLBACK; queue insert + debit + slot update are all-or-nothing.
+2. ✅ **Server-authoritative pricing** — Costs from `pricing_config`; no request-body amount accepted for debits. Admin grant is admin-gated.
+3. ⚠️→✅ **Idempotency** — UNIQUE enforced; normal replay path correct. **BUG-1 fixed:** concurrent boost/queue requests with the same key both passed the SELECT idempotency check before either committed, then raced on INSERT, causing a 23505 → 500 instead of returning the prior result.
+4. ✅ **Failed action ⇒ zero ledger rows** — Both 402 and 409 exit paths ROLLBACK before any writes.
+5. ✅ **Play Next single-slot** — FOR UPDATE serialises concurrent purchases; second buyer gets 409; advance resets to available, no refund (D6).
+6. ✅ **Ledger integrity** — Append-only; balance derived from wallet; admin grant writes actor_id + admin_grant reason.
+7. ✅ **PgBouncer-safe** — No named prepared statements, no session state; all queries parameterised.
+8. ✅ **Error contract** — 402 `insufficient_credits` with required+balance; 409 `play_next_unavailable`; 403 from requireAdmin middleware.
+
+**Fixes shipped:**
+- `api/src/queue/index.ts` — catch block: recover from Postgres 23505 (unique_violation on idempotency_key) by returning prior result rather than 500. (BUG-1)
+- `api/src/payments/stub.ts` — `completeCheckoutSession`: when session not found, check DB for idempotency key before throwing; return prior balance on match. (BUG-2)
+- `api/src/__tests__/money.test.ts` — added Frank-BUG1 (concurrent boost) + MC-10 replay tests.
+
+**Risk note (no code, deferred):** Concurrent distinct-key spends at min wallet balance → DB check_violation (23514) → 500 instead of 402. No money lost; low-priority pre-launch fix. See `.squad/decisions/inbox/frank-balance-race-risk.md`.
+
+**Verdict:** Money paths are sound for this slice. The two defects were idempotency-contract violations (wrong HTTP status under race/retry conditions), not money-loss bugs. Both fixed. Existing 11 tests continue to pass; 2 new tests cover the fixes.

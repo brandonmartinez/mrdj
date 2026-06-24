@@ -1,0 +1,54 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-mrdj}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mrdj}
+      POSTGRES_DB: ${POSTGRES_DB:-mrdj}
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-mrdj}"]
+      interval: 5s
+      timeout: 5s
+      retries: 15
+      start_period: 10s
+
+  app:
+    build:
+      context: .
+      dockerfile: .devcontainer/Dockerfile
+    restart: unless-stopped
+    volumes:
+      - .:/workspace:cached
+      - nm_root:/workspace/node_modules
+      - nm_api:/workspace/api/node_modules
+      - nm_web:/workspace/web/node_modules
+    working_dir: /workspace
+    ports:
+      - "3001:3001"
+      - "5173:5173"
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-mrdj}:${POSTGRES_PASSWORD:-mrdj}@db:5432/${POSTGRES_DB:-mrdj}
+      NODE_ENV: ${NODE_ENV:-development}
+      PORT: ${PORT:-3001}
+      SESSION_SECRET: ${SESSION_SECRET:-dev-secret-change-in-prod}
+    depends_on:
+      db:
+        condition: service_healthy
+    command: >
+      sh -c "
+        npm install --prefer-offline &&
+        npm run db:migrate &&
+        npm run db:seed &&
+        npm run dev
+      "
+
+volumes:
+  pgdata:
+  nm_root:
+  nm_api:
+  nm_web:
