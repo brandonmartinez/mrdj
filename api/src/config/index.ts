@@ -6,9 +6,11 @@ import { resolve } from 'path';
 config({ path: resolve(process.cwd(), '../.env'), override: false });
 
 export const cfg = {
-  port:          parseInt(process.env.PORT ?? '3001', 10),
-  nodeEnv:       process.env.NODE_ENV ?? 'development',
-  databaseUrl:   process.env.DATABASE_URL ?? 'postgresql://mrdj:mrdj@localhost:5432/mrdj',
-  sessionSecret: process.env.SESSION_SECRET ?? 'dev-secret-change-in-prod',
-  isDev:         (process.env.NODE_ENV ?? 'development') === 'development',
+  port:                    parseInt(process.env.PORT ?? '3001', 10),
+  nodeEnv:                 process.env.NODE_ENV ?? 'development',
+  databaseUrl:             process.env.DATABASE_URL ?? 'postgresql://mrdj:mrdj@localhost:5432/mrdj',
+  sessionSecret:           process.env.SESSION_SECRET ?? 'dev-secret-change-in-prod',
+  isDev:                   (process.env.NODE_ENV ?? 'development') === 'development',
+  // Demo auto-advance (default off; set AUTO_ADVANCE_INTERVAL_MS=30000 for 30-s demo)
+  autoAdvanceIntervalMs:   parseInt(process.env.AUTO_ADVANCE_INTERVAL_MS ?? '0', 10),
 } as const;

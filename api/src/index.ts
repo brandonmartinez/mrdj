@@ -17,6 +17,12 @@ async function main() {
     console.log(`[api]   GET  http://localhost:${cfg.port}/api/health`);
     console.log(`[api]   GET  http://localhost:${cfg.port}/api/me`);
     console.log(`[api]   GET  http://localhost:${cfg.port}/api/events/demo/queue`);
+
+    if (cfg.autoAdvanceIntervalMs > 0) {
+      import('./queue/auto-advance.js').then(({ startAutoAdvance }) => {
+        startAutoAdvance(cfg.autoAdvanceIntervalMs);
+      });
+    }
   });
 
   process.on('SIGTERM', async () => {

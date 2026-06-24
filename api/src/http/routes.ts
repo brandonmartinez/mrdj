@@ -3,11 +3,11 @@ import type { Express } from 'express';
 import { pool } from '../db/pool.js';
 import { cfg } from '../config/index.js';
 import { meHandler, actAsHandler } from '../identity/index.js';
-import { getQueueHandler, createRequestStub } from '../queue/index.js';
+import { getQueueHandler, createRequestHandler } from '../queue/index.js';
 import { getBundlesHandler } from '../credits/index.js';
 import { searchTracksHandler } from '../music/index.js';
-import { checkoutSessionStub, checkoutCompleteStub } from '../payments/index.js';
-import { adminGrantStub, adminAdvanceStub } from '../admin/index.js';
+import { checkoutSessionStub, checkoutCompleteHandler } from '../payments/index.js';
+import { adminGrantHandler, adminAdvanceHandler } from '../admin/index.js';
 import { requireAdmin, sendError } from './middleware.js';
 
 export function registerRoutes(app: Express) {
@@ -37,7 +37,7 @@ export function registerRoutes(app: Express) {
   app.get('/api/events/:slug/queue', getQueueHandler);
 
   // STUB — core money/state path; Basher implements
-  app.post('/api/events/:slug/requests', createRequestStub);
+  app.post('/api/events/:slug/requests', createRequestHandler);
 
   // ── Tracks ────────────────────────────────────────────────────────────────
   app.get('/api/tracks/search', searchTracksHandler);
@@ -47,11 +47,11 @@ export function registerRoutes(app: Express) {
 
   // ── Checkout (stubs — Frank/Basher finalize) ──────────────────────────────
   app.post('/api/checkout/session', checkoutSessionStub);
-  app.post('/api/checkout/stub-complete', checkoutCompleteStub);
+  app.post('/api/checkout/stub-complete', checkoutCompleteHandler);
 
-  // ── Admin (stubs — Basher implements) ────────────────────────────────────
-  app.post('/api/admin/credits/grant', requireAdmin, adminGrantStub);
-  app.post('/api/admin/events/:slug/advance', requireAdmin, adminAdvanceStub);
+  // ── Admin (Basher implements) ─────────────────────────────────────────────
+  app.post('/api/admin/credits/grant', requireAdmin, adminGrantHandler);
+  app.post('/api/admin/events/:slug/advance', requireAdmin, adminAdvanceHandler);
 
   // ── 404 catch-all ─────────────────────────────────────────────────────────
   app.use((req, res) => {
