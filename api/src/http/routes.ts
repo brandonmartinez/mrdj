@@ -32,6 +32,10 @@ import {
   createOrgHandler, getOrgHandler, updateOrgHandler, listPlatformOrgsHandler,
   listMembersHandler, addMemberHandler, updateMemberHandler, removeMemberHandler,
 } from '../org/handlers.js';
+import { listMyOrgsHandler, createMyOrgHandler } from '../org/self.js';
+import {
+  listEventsHandler, getEventHandler, createEventHandler, updateEventHandler,
+} from '../event/handlers.js';
 import {
   listAreasHandler, createAreaHandler, updateAreaHandler, deleteAreaHandler,
 } from '../area/index.js';
@@ -111,10 +115,26 @@ export function registerRoutes(app: Express) {
 
   // ── Organizations (#71) — O12 /o/{slug}-style path routing ────────────────
   app.post('/api/orgs', requirePlatformAdmin, asyncHandler(createOrgHandler));
+
+  // ── Self-serve org onboarding (Epic 6, #32/#35) ───────────────────────────
+  // The current SSO account lists/creates its own organizations (becomes owner).
+  app.get('/api/me/orgs',  asyncHandler(listMyOrgsHandler));
+  app.post('/api/me/orgs', asyncHandler(createMyOrgHandler));
+
   app.get('/api/orgs/:orgSlug',
     asyncHandler(resolveOrg()), asyncHandler(requireMembership('staff')), asyncHandler(getOrgHandler));
   app.patch('/api/orgs/:orgSlug',
     asyncHandler(resolveOrg()), asyncHandler(requireMembership('manager')), asyncHandler(updateOrgHandler));
+
+  // ── Events (Epic 6, #41/#44) — org-scoped CRUD ────────────────────────────
+  app.get('/api/orgs/:orgSlug/events',
+    asyncHandler(resolveOrg()), asyncHandler(requireMembership('staff')), asyncHandler(listEventsHandler));
+  app.post('/api/orgs/:orgSlug/events',
+    asyncHandler(resolveOrg()), asyncHandler(requireMembership('manager')), asyncHandler(createEventHandler));
+  app.get('/api/orgs/:orgSlug/events/:eventSlug',
+    asyncHandler(resolveOrg()), asyncHandler(requireMembership('staff')), asyncHandler(getEventHandler));
+  app.patch('/api/orgs/:orgSlug/events/:eventSlug',
+    asyncHandler(resolveOrg()), asyncHandler(requireMembership('manager')), asyncHandler(updateEventHandler));
 
   // ── Stripe Connect onboarding (Epic 4, #20/#23) ───────────────────────────
   app.post('/api/orgs/:orgSlug/stripe/connect',
