@@ -1,6 +1,7 @@
 // Owner: Rusty (credits reads) | Frank (write paths)
 import type { Request, Response } from 'express';
-import { pool } from '../db/pool.js';
+import { asc } from 'drizzle-orm';
+import { db, creditBundles } from '../db/index.js';
 
 export interface Bundle {
   id:           string;
@@ -12,19 +13,25 @@ export interface Bundle {
 }
 
 export async function getBundlesHandler(_req: Request, res: Response) {
-  const result = await pool.query(
-    `SELECT id, label, credits, bonus_credits, price_cents, discount_pct
-     FROM credit_bundles
-     ORDER BY sort_order ASC`,
-  );
+  const rows = await db
+    .select({
+      id:           creditBundles.id,
+      label:        creditBundles.label,
+      credits:      creditBundles.credits,
+      bonusCredits: creditBundles.bonusCredits,
+      priceCents:   creditBundles.priceCents,
+      discountPct:  creditBundles.discountPct,
+    })
+    .from(creditBundles)
+    .orderBy(asc(creditBundles.sortOrder));
 
-  const bundles: Bundle[] = result.rows.map(r => ({
+  const bundles: Bundle[] = rows.map(r => ({
     id:           r.id,
     label:        r.label,
     credits:      r.credits,
-    bonusCredits: r.bonus_credits,
-    priceCents:   r.price_cents,
-    discountPct:  parseFloat(r.discount_pct),
+    bonusCredits: r.bonusCredits,
+    priceCents:   r.priceCents,
+    discountPct:  parseFloat(r.discountPct),
   }));
 
   res.json(bundles);

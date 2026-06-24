@@ -5,6 +5,11 @@ import { config } from 'dotenv';
 import { resolve } from 'path';
 config({ path: resolve(process.cwd(), '../.env'), override: false });
 
+import { sql } from 'drizzle-orm';
+import {
+  db, users, accounts, events, tracks, queueItems,
+  playNextSlot, wallets, creditTransactions, pricingConfig, creditBundles,
+} from './index.js';
 import { pool } from './pool.js';
 
 // ── Stable seed IDs (never change — seed is idempotent on these) ─────────────
@@ -74,104 +79,105 @@ const QUEUE_ITEMS = [
 ] as const;
 
 async function seed() {
-  const client = await pool.connect();
   try {
-    await client.query('BEGIN');
+    await db.transaction(async (tx) => {
+      // Users
+      await tx.insert(users).values([
+        { id: IDS.adminUser, type: 'account' },
+        { id: IDS.guestUser, type: 'guest' },
+      ]).onConflictDoNothing({ target: users.id });
 
-    // Users
-    await client.query(
-      `INSERT INTO users(id, type) VALUES ($1, 'account'), ($2, 'guest')
-       ON CONFLICT (id) DO NOTHING`,
-      [IDS.adminUser, IDS.guestUser],
-    );
+      // Admin account (role = admin)
+      await tx.insert(accounts).values({
+        id:          IDS.adminAccount,
+        userId:      IDS.adminUser,
+        provider:    'stub',
+        providerId:  'admin-001',
+        email:       'admin@mrdj.dev',
+        displayName: 'Admin DJ',
+        role:        'admin',
+      }).onConflictDoNothing({ target: accounts.id });
 
-    // Admin account (role = admin)
-    await client.query(
-      `INSERT INTO accounts(id, user_id, provider, provider_id, email, display_name, role)
-       VALUES ($1, $2, 'stub', 'admin-001', 'admin@mrdj.dev', 'Admin DJ', 'admin')
-       ON CONFLICT (id) DO NOTHING`,
-      [IDS.adminAccount, IDS.adminUser],
-    );
+      // Demo event — "The Ocean's Eleven After Party" (slug: demo)
+      await tx.insert(events).values({
+        id:        IDS.demoEvent,
+        slug:      'demo',
+        name:      "The Ocean's Eleven After Party",
+        ownerId:   IDS.adminAccount,
+        status:    'live',
+        startedAt: sql`now()`,
+      }).onConflictDoNothing({ target: events.id });
 
-    // Demo event — "The Ocean's Eleven After Party" (slug: demo)
-    await client.query(
-      `INSERT INTO events(id, slug, name, owner_id, status, started_at)
-       VALUES ($1, 'demo', 'The Ocean''s Eleven After Party', $2, 'live', now())
-       ON CONFLICT (id) DO NOTHING`,
-      [IDS.demoEvent, IDS.adminAccount],
-    );
+      // 15 CC/public-domain tracks
+      await tx.insert(tracks).values(
+        TRACKS.map((t) => ({
+          id:         trackId(t.n),
+          provider:   'stub',
+          providerId: t.pid,
+          title:      t.title,
+          artist:     t.artist,
+          album:      t.album,
+          artworkUrl: svgArtwork(t.color, t.label),
+          durationMs: t.ms,
+        })),
+      ).onConflictDoNothing({ target: [tracks.provider, tracks.providerId] });
 
-    // 15 CC/public-domain tracks
-    for (const t of TRACKS) {
-      await client.query(
-        `INSERT INTO tracks(id, provider, provider_id, title, artist, album, artwork_url, duration_ms)
-         VALUES ($1, 'stub', $2, $3, $4, $5, $6, $7)
-         ON CONFLICT (provider, provider_id) DO NOTHING`,
-        [trackId(t.n), t.pid, t.title, t.artist, t.album, svgArtwork(t.color, t.label), t.ms],
-      );
-    }
+      // Pre-populated queue (4 played, 1 playing, 6 pending)
+      await tx.insert(queueItems).values(
+        QUEUE_ITEMS.map((qi) => ({
+          id:          queueId(qi.n),
+          eventId:     IDS.demoEvent,
+          trackId:     trackId(qi.trackN),
+          requesterId: IDS.guestUser,
+          position:    qi.position,
+          status:      qi.status,
+          isPlayNext:  false,
+          updatedAt:   sql`now() - (${qi.minutesAgo}::int * interval '1 minute')`,
+        })),
+      ).onConflictDoNothing({ target: queueItems.id });
 
-    // Pre-populated queue (4 played, 1 playing, 6 pending)
-    for (const qi of QUEUE_ITEMS) {
-      await client.query(
-        `INSERT INTO queue_items(id, event_id, track_id, requester_id, position, status, is_play_next, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, false, now() - ($7::int * interval '1 minute'))
-         ON CONFLICT (id) DO NOTHING`,
-        [queueId(qi.n), IDS.demoEvent, trackId(qi.trackN), IDS.guestUser, qi.position, qi.status, qi.minutesAgo],
-      );
-    }
+      // Play Next slot — available on boot
+      await tx.insert(playNextSlot).values({
+        eventId: IDS.demoEvent,
+        status:  'available',
+      }).onConflictDoNothing({ target: playNextSlot.eventId });
 
-    // Play Next slot — available on boot
-    await client.query(
-      `INSERT INTO play_next_slot(event_id, status)
-       VALUES ($1, 'available')
-       ON CONFLICT (event_id) DO NOTHING`,
-      [IDS.demoEvent],
-    );
+      // Wallets: guest=2 credits (free Add works, Boost=1 works once, Play Next=3 → triggers buy-more)
+      await tx.insert(wallets).values([
+        { id: IDS.guestWallet, userId: IDS.guestUser, balance: 2 },
+        { id: IDS.adminWallet, userId: IDS.adminUser, balance: 100 },
+      ]).onConflictDoNothing({ target: wallets.id });
 
-    // Wallets: guest=2 credits (free Add works, Boost=1 works once, Play Next=3 → triggers buy-more)
-    await client.query(
-      `INSERT INTO wallets(id, user_id, balance) VALUES ($1, $2, 2), ($3, $4, 100)
-       ON CONFLICT (id) DO NOTHING`,
-      [IDS.guestWallet, IDS.guestUser, IDS.adminWallet, IDS.adminUser],
-    );
+      // Credit ledger entry for guest initial balance (idempotency_key prevents re-grant)
+      await tx.insert(creditTransactions).values({
+        id:             IDS.ctGuestInit,
+        userId:         IDS.guestUser,
+        type:           'grant',
+        amount:         2,
+        reason:         'promo',
+        idempotencyKey: 'seed:guest-initial-2-credits',
+      }).onConflictDoNothing({ target: creditTransactions.idempotencyKey });
 
-    // Credit ledger entry for guest initial balance (idempotency_key prevents re-grant)
-    await client.query(
-      `INSERT INTO credit_transactions(id, user_id, type, amount, reason, idempotency_key)
-       VALUES ($1, $2, 'grant', 2, 'promo', 'seed:guest-initial-2-credits')
-       ON CONFLICT (idempotency_key) DO NOTHING`,
-      [IDS.ctGuestInit, IDS.guestUser],
-    );
+      // Server-side pricing config (never sent raw to frontend except via QueueView.pricing)
+      await tx.insert(pricingConfig).values([
+        { key: 'queue',     value: 0 },
+        { key: 'boost',     value: 1 },
+        { key: 'play_next', value: 3 },
+      ]).onConflictDoNothing({ target: pricingConfig.key });
 
-    // Server-side pricing config (never sent raw to frontend except via QueueView.pricing)
-    await client.query(`
-      INSERT INTO pricing_config(key, value) VALUES
-        ('queue',     0),
-        ('boost',     1),
-        ('play_next', 3)
-      ON CONFLICT (key) DO NOTHING
-    `);
+      // Credit bundles: small/standard/large with bonus credits
+      await tx.insert(creditBundles).values([
+        { id: IDS.bundleStarter, label: 'Starter Pack', credits:  5, bonusCredits:  0, priceCents: 199, discountPct: '0.00',  sortOrder: 1 },
+        { id: IDS.bundleParty,   label: 'Party Pack',   credits: 15, bonusCredits:  2, priceCents: 499, discountPct: '9.09',  sortOrder: 2 },
+        { id: IDS.bundleVip,     label: 'VIP Pack',     credits: 30, bonusCredits: 10, priceCents: 999, discountPct: '24.24', sortOrder: 3 },
+      ]).onConflictDoNothing({ target: creditBundles.id });
+    });
 
-    // Credit bundles: small/standard/large with bonus credits
-    await client.query(
-      `INSERT INTO credit_bundles(id, label, credits, bonus_credits, price_cents, discount_pct, sort_order)
-       VALUES
-         ($1, 'Starter Pack',   5,  0,  199,  0.00, 1),
-         ($2, 'Party Pack',    15,  2,  499,  9.09, 2),
-         ($3, 'VIP Pack',      30, 10,  999, 24.24, 3)
-       ON CONFLICT (id) DO NOTHING`,
-      [IDS.bundleStarter, IDS.bundleParty, IDS.bundleVip],
-    );
-
-    await client.query('COMMIT');
     console.log('[seed] ✓ Seed completed successfully');
   } catch (err) {
-    await client.query('ROLLBACK');
     console.error('[seed] Seed failed:', err);
     throw err;
   } finally {
-    client.release();
     await pool.end();
   }
 }

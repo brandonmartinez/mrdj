@@ -1,6 +1,7 @@
 // Owner: Basher (admin write paths)
 import type { Request, Response } from 'express';
-import { pool } from '../db/pool.js';
+import { eq } from 'drizzle-orm';
+import { db, users } from '../db/index.js';
 import { grantCredits } from '../credits/service.js';
 import { getEventBySlug } from '../event/index.js';
 import {
@@ -35,8 +36,8 @@ export async function adminGrantHandler(req: Request, res: Response) {
   }
 
   // Verify target user exists
-  const userCheck = await pool.query('SELECT id FROM users WHERE id = $1', [targetUserId]);
-  if (!userCheck.rows[0]) {
+  const [userCheck] = await db.select({ id: users.id }).from(users).where(eq(users.id, targetUserId));
+  if (!userCheck) {
     sendError(res, 404, 'not_found', `User '${targetUserId}' not found`);
     return;
   }

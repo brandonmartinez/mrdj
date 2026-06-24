@@ -1,27 +1,29 @@
 // Owner: Rusty (identity reads + dev role switcher)
 import type { Request, Response } from 'express';
-import { pool } from '../db/pool.js';
+import { eq } from 'drizzle-orm';
+import { db, wallets, events } from '../db/index.js';
 import { SEED_IDS, sendError } from '../http/middleware.js';
 
 export async function meHandler(req: Request, res: Response) {
   const userId = req.session.userId!;
 
   // Credit balance (reads wallet; falls back to 0 if not found)
-  const walletRow = await pool.query(
-    'SELECT balance FROM wallets WHERE user_id = $1',
-    [userId],
-  );
-  const creditBalance: number = walletRow.rows[0]?.balance ?? 0;
+  const [walletRow] = await db
+    .select({ balance: wallets.balance })
+    .from(wallets)
+    .where(eq(wallets.userId, userId));
+  const creditBalance: number = walletRow?.balance ?? 0;
 
   // Fetch demo event (always the demo event for this slice)
-  const eventRow = await pool.query(
-    `SELECT id, slug, name FROM events WHERE slug = 'demo' LIMIT 1`,
-  );
-  if (!eventRow.rows[0]) {
+  const [event] = await db
+    .select({ id: events.id, slug: events.slug, name: events.name })
+    .from(events)
+    .where(eq(events.slug, 'demo'))
+    .limit(1);
+  if (!event) {
     sendError(res, 404, 'not_found', 'Demo event not found — did migrations + seed run?');
     return;
   }
-  const event = eventRow.rows[0];
 
   res.json({
     user: {

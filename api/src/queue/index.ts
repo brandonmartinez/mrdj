@@ -1,7 +1,10 @@
 // Owner: Rusty (queue reads) | Basher (write paths)
 import type { Request, Response } from 'express';
-import type { PoolClient } from 'pg';
-import { pool } from '../db/pool.js';
+import { and, asc, desc, eq, gt, gte, inArray, sql } from 'drizzle-orm';
+import {
+  db, pgErrorCode,
+  queueItems, tracks, playNextSlot, pricingConfig, wallets, creditTransactions,
+} from '../db/index.js';
 import { getEventBySlug } from '../event/index.js';
 import { sendError } from '../http/middleware.js';
 import type { ApiError } from '../http/middleware.js';
@@ -76,61 +79,81 @@ function rowToQueueItem(row: Record<string, unknown>): QueueItem {
   };
 }
 
-const QUEUE_JOIN = `
-  SELECT
-    qi.id, qi.status, qi.position, qi.is_play_next, qi.requester_id,
-    t.id         AS track_id,
-    t.provider,
-    t.provider_id,
-    t.title,
-    t.artist,
-    t.album,
-    t.artwork_url,
-    t.duration_ms
-  FROM queue_items qi
-  JOIN tracks t ON t.id = qi.track_id
-  WHERE qi.event_id = $1
-`;
+// Column projection for the queue-item ⋈ track join. Keys are snake_case to match
+// rowToQueueItem's accessors (and the frozen slice-01 wire contract).
+const QUEUE_ITEM_COLS = {
+  id:           queueItems.id,
+  status:       queueItems.status,
+  position:     queueItems.position,
+  is_play_next: queueItems.isPlayNext,
+  requester_id: queueItems.requesterId,
+  track_id:     tracks.id,
+  provider:     tracks.provider,
+  provider_id:  tracks.providerId,
+  title:        tracks.title,
+  artist:       tracks.artist,
+  album:        tracks.album,
+  artwork_url:  tracks.artworkUrl,
+  duration_ms:  tracks.durationMs,
+};
+
+/** Fetch a single queue item joined to its track, or undefined. */
+async function fetchQueueItem(id: string) {
+  const rows = await db
+    .select(QUEUE_ITEM_COLS)
+    .from(queueItems)
+    .innerJoin(tracks, eq(tracks.id, queueItems.trackId))
+    .where(eq(queueItems.id, id));
+  return rows[0];
+}
+
+/** Read a user's current credit balance (0 if no wallet row). */
+async function fetchBalance(userId: string): Promise<number> {
+  const [row] = await db.select({ balance: wallets.balance }).from(wallets).where(eq(wallets.userId, userId));
+  return row?.balance ?? 0;
+}
 
 // ── buildQueueView — shared helper ───────────────────────────────────────────
-// Used by getQueueHandler, createRequestHandler, and advanceQueue.
-// Accepts an optional PoolClient for use inside a transaction; falls back to pool.
+// Used by getQueueHandler, createRequestHandler, advanceQueue, removeQueueItem,
+// and reorderQueueItem. Always reads via the pool (callers invoke it AFTER their
+// own transaction has committed), so it takes no executor.
 
-export async function buildQueueView(
-  eventId: string,
-  userId:  string,
-  client?: PoolClient,
-): Promise<QueueView> {
-  const q = client ?? pool;
-
-  const [nowRow, prevRows, upcomingRows, pnsRow, pricingRows, walletRow] = await Promise.all([
-    q.query(`${QUEUE_JOIN} AND qi.status = 'playing' LIMIT 1`, [eventId]),
-    q.query(`${QUEUE_JOIN} AND qi.status = 'played' ORDER BY qi.updated_at DESC LIMIT 20`, [eventId]),
-    q.query(`${QUEUE_JOIN} AND qi.status = 'pending' ORDER BY qi.position ASC`, [eventId]),
-    q.query(`SELECT status, holder_queue_item_id FROM play_next_slot WHERE event_id = $1`, [eventId]),
-    q.query(`SELECT key, value FROM pricing_config WHERE key IN ('queue','boost','play_next')`),
-    q.query('SELECT balance FROM wallets WHERE user_id = $1', [userId]),
+export async function buildQueueView(eventId: string, userId: string): Promise<QueueView> {
+  const [nowRows, prevRows, upcomingRows, pnsRows, pricingRows, walletRows] = await Promise.all([
+    db.select(QUEUE_ITEM_COLS).from(queueItems).innerJoin(tracks, eq(tracks.id, queueItems.trackId))
+      .where(and(eq(queueItems.eventId, eventId), eq(queueItems.status, 'playing'))).limit(1),
+    db.select(QUEUE_ITEM_COLS).from(queueItems).innerJoin(tracks, eq(tracks.id, queueItems.trackId))
+      .where(and(eq(queueItems.eventId, eventId), eq(queueItems.status, 'played')))
+      .orderBy(desc(queueItems.updatedAt)).limit(20),
+    db.select(QUEUE_ITEM_COLS).from(queueItems).innerJoin(tracks, eq(tracks.id, queueItems.trackId))
+      .where(and(eq(queueItems.eventId, eventId), eq(queueItems.status, 'pending')))
+      .orderBy(asc(queueItems.position)),
+    db.select({ status: playNextSlot.status, holderQueueItemId: playNextSlot.holderQueueItemId })
+      .from(playNextSlot).where(eq(playNextSlot.eventId, eventId)),
+    db.select({ key: pricingConfig.key, value: pricingConfig.value })
+      .from(pricingConfig).where(inArray(pricingConfig.key, ['queue', 'boost', 'play_next'])),
+    db.select({ balance: wallets.balance }).from(wallets).where(eq(wallets.userId, userId)),
   ]);
 
   const pricing: QueueView['pricing'] = { queue: 0, boost: 1, playNext: 3 };
-  for (const row of pricingRows.rows as { key: string; value: number }[]) {
+  for (const row of pricingRows) {
     if (row.key === 'queue')     pricing.queue    = row.value;
     if (row.key === 'boost')     pricing.boost    = row.value;
     if (row.key === 'play_next') pricing.playNext = row.value;
   }
 
-  const pns = pnsRow.rows[0];
+  const pns = pnsRows[0];
   return {
-    nowPlaying:    nowRow.rows[0] ? rowToQueueItem(nowRow.rows[0]) : null,
-    previous:      prevRows.rows.map(rowToQueueItem),
-    upcoming:      upcomingRows.rows.map(rowToQueueItem),
+    nowPlaying: nowRows[0] ? rowToQueueItem(nowRows[0]) : null,
+    previous:   prevRows.map(rowToQueueItem),
+    upcoming:   upcomingRows.map(rowToQueueItem),
     playNext: {
-      status:            pns?.status ?? 'available',
-      holderQueueItemId: pns?.holder_queue_item_id ?? null,
+      status:            (pns?.status ?? 'available') as PlayNextState['status'],
+      holderQueueItemId: pns?.holderQueueItemId ?? null,
       price:             pricing.playNext,
     },
     pricing,
-    creditBalance: walletRow.rows[0]?.balance ?? 0,
+    creditBalance: walletRows[0]?.balance ?? 0,
   };
 }
 
@@ -165,7 +188,8 @@ export interface CreateRequestBody {
  *  - Server-authoritative pricing: costs are read from pricing_config, never the request body.
  *  - Single atomic transaction: debit + queue insert + play_next_slot update are all-or-nothing.
  *  - Idempotency: credit_transactions.idempotency_key UNIQUE prevents double-charge on retry.
- *  - Failed actions never debit: rollback on any validation or availability failure.
+ *  - Failed actions never debit: the transaction returns a typed failure (committing nothing,
+ *    since all checks run before any write) or throws to roll back.
  *  - Play Next concurrency: SELECT … FOR UPDATE on play_next_slot serialises concurrent purchases;
  *    only one caller can hold the lock — a second gets play_next_unavailable.
  */
@@ -194,201 +218,187 @@ export async function createRequestHandler(req: Request, res: Response) {
   }
 
   // ── Verify track exists (before opening transaction) ─────────────────────
-  const trackCheck = await pool.query('SELECT id FROM tracks WHERE id = $1', [trackId]);
-  if (!trackCheck.rows[0]) {
+  const [track] = await db.select({ id: tracks.id }).from(tracks).where(eq(tracks.id, trackId));
+  if (!track) {
     sendError(res, 400, 'validation', `Track '${trackId}' not found`);
     return;
   }
 
-  const c = await pool.connect();
-  // Hoisted so the catch block can report it on a 23514 (concurrent-spend) recovery.
+  // Hoisted so the 23514 (concurrent-spend) catch can report the right cost on a 402.
   let cost = 0;
   try {
-    await c.query('BEGIN');
+    const result = await db.transaction(async (tx) => {
+      // ── Server-authoritative pricing (never trust request body) ───────────
+      const pricingRows = await tx
+        .select({ key: pricingConfig.key, value: pricingConfig.value })
+        .from(pricingConfig)
+        .where(inArray(pricingConfig.key, ['queue', 'boost', 'play_next']));
+      const pricing = { queue: 0, boost: 1, playNext: 3 };
+      for (const r of pricingRows) {
+        if (r.key === 'queue')     pricing.queue    = r.value;
+        if (r.key === 'boost')     pricing.boost    = r.value;
+        if (r.key === 'play_next') pricing.playNext = r.value;
+      }
+      cost = tier === 'queue' ? pricing.queue
+           : tier === 'boost' ? pricing.boost
+           : pricing.playNext;
 
-    // ── Server-authoritative pricing (never trust request body) ───────────
-    const pricingRows = await c.query(
-      `SELECT key, value FROM pricing_config WHERE key IN ('queue','boost','play_next')`,
-    );
-    const pricing = { queue: 0, boost: 1, playNext: 3 };
-    for (const r of pricingRows.rows as { key: string; value: number }[]) {
-      if (r.key === 'queue')     pricing.queue    = r.value;
-      if (r.key === 'boost')     pricing.boost    = r.value;
-      if (r.key === 'play_next') pricing.playNext = r.value;
-    }
-    cost = tier === 'queue' ? pricing.queue
-         : tier === 'boost' ? pricing.boost
-         : pricing.playNext;
+      // ── Acquire Play Next slot lock BEFORE idempotency check ─────────────
+      // FOR UPDATE serialises concurrent play_next purchases; held until COMMIT/ROLLBACK.
+      if (tier === 'play_next') {
+        await tx.select({ status: playNextSlot.status })
+          .from(playNextSlot).where(eq(playNextSlot.eventId, event.id)).for('update');
+      }
 
-    // ── Acquire Play Next slot lock BEFORE idempotency check ─────────────
-    // FOR UPDATE serialises concurrent play_next purchases; held until COMMIT/ROLLBACK.
-    if (tier === 'play_next') {
-      await c.query(
-        `SELECT status FROM play_next_slot WHERE event_id = $1 FOR UPDATE`,
-        [event.id],
-      );
-    }
+      // ── Idempotency: same key → return original result, no second charge ──
+      const [existingTx] = await tx
+        .select({ id: creditTransactions.id, referenceId: creditTransactions.referenceId })
+        .from(creditTransactions)
+        .where(eq(creditTransactions.idempotencyKey, idempotencyKey));
+      if (existingTx) {
+        // No writes happened; committing the (empty) tx releases any FOR UPDATE lock.
+        return { kind: 'idempotent' as const, queueItemId: existingTx.referenceId as string };
+      }
 
-    // ── Idempotency: same key → return original result, no second charge ──
-    const existingTx = await c.query(
-      `SELECT id, reference_id FROM credit_transactions WHERE idempotency_key = $1`,
-      [idempotencyKey],
-    );
-    if (existingTx.rows[0]) {
-      await c.query('ROLLBACK'); // nothing to commit; releases any row locks
-      const existingQueueItemId: string = existingTx.rows[0].reference_id;
-      const [queueItem, queueView, walletRow] = await Promise.all([
-        pool.query(
-          `SELECT qi.id, qi.status, qi.position, qi.is_play_next, qi.requester_id,
-                  t.id AS track_id, t.provider, t.provider_id, t.title, t.artist,
-                  t.album, t.artwork_url, t.duration_ms
-           FROM queue_items qi JOIN tracks t ON t.id = qi.track_id
-           WHERE qi.id = $1`,
-          [existingQueueItemId],
-        ),
+      // ── Play Next: verify slot is available (lock already held) ───────────
+      if (tier === 'play_next') {
+        const [slot] = await tx.select({ status: playNextSlot.status })
+          .from(playNextSlot).where(eq(playNextSlot.eventId, event.id));
+        if (!slot || slot.status !== 'available') {
+          return { kind: 'play_next_unavailable' as const };
+        }
+      }
+
+      // ── Balance check (paid tiers) ────────────────────────────────────────
+      if (cost > 0) {
+        const [w] = await tx.select({ balance: wallets.balance })
+          .from(wallets).where(eq(wallets.userId, userId));
+        const bal = w?.balance ?? 0;
+        if (bal < cost) {
+          return { kind: 'insufficient' as const, cost, balance: bal };
+        }
+      }
+
+      // ── Determine queue position and shift existing items ─────────────────
+      let insertPosition: number;
+      let isPlayNext = false;
+
+      if (tier === 'play_next') {
+        // Shift all pending items down to free position 1
+        await tx.update(queueItems)
+          .set({ position: sql`${queueItems.position} + 1` })
+          .where(and(eq(queueItems.eventId, event.id), eq(queueItems.status, 'pending')));
+        insertPosition = 1;
+        isPlayNext     = true;
+
+      } else if (tier === 'boost') {
+        // Boost target: position 2 if play_next is locked (so we can't jump the holder),
+        // position 1 otherwise (front of the normal queue).
+        const [slot] = await tx.select({ status: playNextSlot.status })
+          .from(playNextSlot).where(eq(playNextSlot.eventId, event.id));
+        const playNextLocked = slot?.status === 'locked';
+        insertPosition = playNextLocked ? 2 : 1;
+
+        await tx.update(queueItems)
+          .set({ position: sql`${queueItems.position} + 1` })
+          .where(and(
+            eq(queueItems.eventId, event.id),
+            eq(queueItems.status, 'pending'),
+            gte(queueItems.position, insertPosition),
+          ));
+
+      } else {
+        // queue (free): append after all current pending items
+        const [maxRow] = await tx
+          .select({ maxPos: sql<number>`COALESCE(MAX(${queueItems.position}), 0)` })
+          .from(queueItems)
+          .where(and(eq(queueItems.eventId, event.id), eq(queueItems.status, 'pending')));
+        insertPosition = (maxRow?.maxPos ?? 0) + 1;
+      }
+
+      // ── Insert queue item ─────────────────────────────────────────────────
+      const [inserted] = await tx.insert(queueItems)
+        .values({
+          eventId:     event.id,
+          trackId,
+          requesterId: userId,
+          position:    insertPosition,
+          status:      'pending',
+          isPlayNext,
+        })
+        .returning({ id: queueItems.id });
+      const queueItemId = inserted.id;
+
+      // ── Record credit transaction (always — even for free tier) ───────────
+      // Storing even 0-cost actions ensures consistent idempotency via the UNIQUE key.
+      // reference_id links back to the queue_item for retry reconstruction.
+      await tx.insert(creditTransactions).values({
+        userId,
+        type:        'spend',
+        amount:      cost,
+        reason:      tier,
+        idempotencyKey,
+        referenceId: queueItemId,
+      });
+
+      // ── Debit wallet (paid tiers only) ────────────────────────────────────
+      if (cost > 0) {
+        await tx.update(wallets)
+          .set({ balance: sql`${wallets.balance} - ${cost}`, updatedAt: sql`now()` })
+          .where(eq(wallets.userId, userId));
+      }
+
+      // ── Lock play_next slot ───────────────────────────────────────────────
+      if (tier === 'play_next') {
+        await tx.update(playNextSlot)
+          .set({ status: 'locked', holderQueueItemId: queueItemId, lockedAt: sql`now()` })
+          .where(eq(playNextSlot.eventId, event.id));
+      }
+
+      return { kind: 'created' as const, queueItemId };
+    });
+
+    // ── Translate the transaction outcome into an HTTP response ─────────────
+    if (result.kind === 'idempotent') {
+      const [queueItem, queueView, creditBalance] = await Promise.all([
+        fetchQueueItem(result.queueItemId),
         buildQueueView(event.id, userId),
-        pool.query('SELECT balance FROM wallets WHERE user_id = $1', [userId]),
+        fetchBalance(userId),
       ]);
       res.json({
-        queueItem:     queueItem.rows[0] ? rowToQueueItem(queueItem.rows[0]) : null,
-        creditBalance: walletRow.rows[0]?.balance ?? 0,
+        queueItem:     queueItem ? rowToQueueItem(queueItem) : null,
+        creditBalance,
         queueView,
       });
       return;
     }
 
-    // ── Play Next: verify slot is available (lock already held) ───────────
-    if (tier === 'play_next') {
-      const slotRow = await c.query(
-        `SELECT status FROM play_next_slot WHERE event_id = $1`,
-        [event.id],
-      );
-      if (!slotRow.rows[0] || slotRow.rows[0].status !== 'available') {
-        await c.query('ROLLBACK');
-        sendError(res, 409, 'play_next_unavailable', 'The Play Next slot is not available');
-        return;
-      }
+    if (result.kind === 'play_next_unavailable') {
+      sendError(res, 409, 'play_next_unavailable', 'The Play Next slot is not available');
+      return;
     }
 
-    // ── Balance check (paid tiers) ────────────────────────────────────────
-    if (cost > 0) {
-      const walletRow = await c.query(
-        `SELECT balance FROM wallets WHERE user_id = $1`,
-        [userId],
-      );
-      const balance: number = walletRow.rows[0]?.balance ?? 0;
-      if (balance < cost) {
-        await c.query('ROLLBACK');
-        sendError(res, 402, 'insufficient_credits', 'Insufficient credits', {
-          required: cost,
-          balance,
-        });
-        return;
-      }
+    if (result.kind === 'insufficient') {
+      sendError(res, 402, 'insufficient_credits', 'Insufficient credits', {
+        required: result.cost,
+        balance:  result.balance,
+      });
+      return;
     }
 
-    // ── Determine queue position and shift existing items ─────────────────
-    let insertPosition: number;
-    let isPlayNext = false;
-
-    if (tier === 'play_next') {
-      // Shift all pending items down to free position 1
-      await c.query(
-        `UPDATE queue_items SET position = position + 1
-         WHERE event_id = $1 AND status = 'pending'`,
-        [event.id],
-      );
-      insertPosition = 1;
-      isPlayNext     = true;
-
-    } else if (tier === 'boost') {
-      // Boost target: position 2 if play_next is locked (so we can't jump the holder),
-      // position 1 otherwise (front of the normal queue).
-      const slotRow = await c.query(
-        `SELECT status FROM play_next_slot WHERE event_id = $1`,
-        [event.id],
-      );
-      const playNextLocked = slotRow.rows[0]?.status === 'locked';
-      insertPosition = playNextLocked ? 2 : 1;
-
-      await c.query(
-        `UPDATE queue_items SET position = position + 1
-         WHERE event_id = $1 AND status = 'pending' AND position >= $2`,
-        [event.id, insertPosition],
-      );
-
-    } else {
-      // queue (free): append after all current pending items
-      const maxRow = await c.query(
-        `SELECT COALESCE(MAX(position), 0) AS max_pos
-         FROM queue_items WHERE event_id = $1 AND status = 'pending'`,
-        [event.id],
-      );
-      insertPosition = (maxRow.rows[0]?.max_pos as number ?? 0) + 1;
-    }
-
-    // ── Insert queue item ─────────────────────────────────────────────────
-    const queueItemRow = await c.query(
-      `INSERT INTO queue_items(event_id, track_id, requester_id, position, status, is_play_next)
-       VALUES ($1, $2, $3, $4, 'pending', $5)
-       RETURNING id`,
-      [event.id, trackId, userId, insertPosition, isPlayNext],
-    );
-    const queueItemId: string = queueItemRow.rows[0].id;
-
-    // ── Record credit transaction (always — even for free tier) ───────────
-    // Storing even 0-cost actions ensures consistent idempotency via the UNIQUE key.
-    // reference_id links back to the queue_item for retry reconstruction.
-    await c.query(
-      `INSERT INTO credit_transactions(user_id, type, amount, reason, idempotency_key, reference_id)
-       VALUES ($1, 'spend', $2, $3, $4, $5)`,
-      [userId, cost, tier, idempotencyKey, queueItemId],
-    );
-
-    // ── Debit wallet (paid tiers only) ────────────────────────────────────
-    if (cost > 0) {
-      await c.query(
-        `UPDATE wallets SET balance = balance - $1, updated_at = now()
-         WHERE user_id = $2`,
-        [cost, userId],
-      );
-    }
-
-    // ── Lock play_next slot ───────────────────────────────────────────────
-    if (tier === 'play_next') {
-      await c.query(
-        `UPDATE play_next_slot
-         SET status = 'locked', holder_queue_item_id = $1, locked_at = now()
-         WHERE event_id = $2`,
-        [queueItemId, event.id],
-      );
-    }
-
-    await c.query('COMMIT');
+    // result.kind === 'created'
     publishQueueChanged(event.id);
-
-    // ── Build response (outside transaction — read-only) ──────────────────
-    const [queueItemFull, queueView, walletRow] = await Promise.all([
-      pool.query(
-        `SELECT qi.id, qi.status, qi.position, qi.is_play_next, qi.requester_id,
-                t.id AS track_id, t.provider, t.provider_id, t.title, t.artist,
-                t.album, t.artwork_url, t.duration_ms
-         FROM queue_items qi JOIN tracks t ON t.id = qi.track_id
-         WHERE qi.id = $1`,
-        [queueItemId],
-      ),
+    const [queueItemFull, queueView, creditBalance] = await Promise.all([
+      fetchQueueItem(result.queueItemId),
       buildQueueView(event.id, userId),
-      pool.query('SELECT balance FROM wallets WHERE user_id = $1', [userId]),
+      fetchBalance(userId),
     ]);
-
     res.status(201).json({
-      queueItem:     rowToQueueItem(queueItemFull.rows[0]),
-      creditBalance: walletRow.rows[0]?.balance ?? 0,
+      queueItem:     rowToQueueItem(queueItemFull!),
+      creditBalance,
       queueView,
     });
   } catch (err) {
-    await c.query('ROLLBACK').catch(() => {});
-
     // Race-safe idempotency recovery (Postgres 23505 = unique_violation):
     // Two concurrent requests with the same idempotency key can both pass the
     // SELECT idempotency check before either commits, then race on the INSERT.
@@ -396,29 +406,21 @@ export async function createRequestHandler(req: Request, res: Response) {
     // When the loser gets 23505, recover gracefully by returning the prior result
     // rather than propagating a 500.  No double-charge ever occurs (the UNIQUE
     // constraint guarantees exactly one ledger row).
-    if ((err as { code?: string }).code === '23505' && idempotencyKey) {
+    if (pgErrorCode(err) === '23505' && idempotencyKey) {
       try {
-        const existingTx = await pool.query(
-          `SELECT id, reference_id FROM credit_transactions WHERE idempotency_key = $1`,
-          [idempotencyKey],
-        );
-        if (existingTx.rows[0]) {
-          const existingQueueItemId: string = existingTx.rows[0].reference_id;
-          const [queueItemRes, queueView, walletRow] = await Promise.all([
-            pool.query(
-              `SELECT qi.id, qi.status, qi.position, qi.is_play_next, qi.requester_id,
-                      t.id AS track_id, t.provider, t.provider_id, t.title, t.artist,
-                      t.album, t.artwork_url, t.duration_ms
-               FROM queue_items qi JOIN tracks t ON t.id = qi.track_id
-               WHERE qi.id = $1`,
-              [existingQueueItemId],
-            ),
+        const [existingTx] = await db
+          .select({ id: creditTransactions.id, referenceId: creditTransactions.referenceId })
+          .from(creditTransactions)
+          .where(eq(creditTransactions.idempotencyKey, idempotencyKey));
+        if (existingTx) {
+          const [queueItem, queueView, creditBalance] = await Promise.all([
+            fetchQueueItem(existingTx.referenceId as string),
             buildQueueView(event.id, userId),
-            pool.query('SELECT balance FROM wallets WHERE user_id = $1', [userId]),
+            fetchBalance(userId),
           ]);
           res.status(200).json({
-            queueItem:     queueItemRes.rows[0] ? rowToQueueItem(queueItemRes.rows[0]) : null,
-            creditBalance: walletRow.rows[0]?.balance ?? 0,
+            queueItem:     queueItem ? rowToQueueItem(queueItem) : null,
+            creditBalance,
             queueView,
           });
           return;
@@ -433,12 +435,12 @@ export async function createRequestHandler(req: Request, res: Response) {
     // either commits, then the second debit drives the wallet below zero and trips the CHECK.
     // That is a money condition (the user can't afford both), not a server fault — surface it
     // as 402 insufficient_credits, not a 500. No charge is applied (the transaction rolled back).
-    if ((err as { code?: string }).code === '23514') {
+    if (pgErrorCode(err) === '23514') {
       try {
-        const walletRow = await pool.query('SELECT balance FROM wallets WHERE user_id = $1', [userId]);
+        const balance = await fetchBalance(userId);
         sendError(res, 402, 'insufficient_credits', 'Insufficient credits', {
           required: cost,
-          balance:  walletRow.rows[0]?.balance ?? 0,
+          balance,
         });
         return;
       } catch {
@@ -447,8 +449,6 @@ export async function createRequestHandler(req: Request, res: Response) {
     }
 
     throw err;
-  } finally {
-    c.release();
   }
 }
 
@@ -462,16 +462,11 @@ export async function createRequestHandler(req: Request, res: Response) {
  * Returns the updated QueueView.
  */
 export async function advanceQueue(eventId: string, userId: string): Promise<QueueView> {
-  const c = await pool.connect();
-  try {
-    await c.query('BEGIN');
-
+  await db.transaction(async (tx) => {
     // Mark current now-playing as played
-    await c.query(
-      `UPDATE queue_items SET status = 'played', updated_at = now()
-       WHERE event_id = $1 AND status = 'playing'`,
-      [eventId],
-    );
+    await tx.update(queueItems)
+      .set({ status: 'played', updatedAt: sql`now()` })
+      .where(and(eq(queueItems.eventId, eventId), eq(queueItems.status, 'playing')));
 
     // Promote the next pending item (play_next holder is at position 1, otherwise min position).
     // FOR UPDATE so a concurrent removeQueueItem — which locks the row, rejects it, and refunds
@@ -480,41 +475,28 @@ export async function advanceQueue(eventId: string, userId: string): Promise<Que
     // still-pending row instead. The status guard on the UPDATE is belt-and-suspenders. Without this
     // an advance||remove race (e.g. the auto-advance timer vs an admin remove) could set a
     // just-refunded item to 'playing' — refunding the guest AND still playing their song.
-    const nextRow = await c.query(
-      `SELECT id FROM queue_items
-       WHERE event_id = $1 AND status = 'pending'
-       ORDER BY position ASC LIMIT 1
-       FOR UPDATE`,
-      [eventId],
-    );
+    const [next] = await tx
+      .select({ id: queueItems.id })
+      .from(queueItems)
+      .where(and(eq(queueItems.eventId, eventId), eq(queueItems.status, 'pending')))
+      .orderBy(asc(queueItems.position))
+      .limit(1)
+      .for('update');
 
-    if (nextRow.rows[0]) {
-      await c.query(
-        `UPDATE queue_items
-         SET status = 'playing', is_play_next = false, position = 0, updated_at = now()
-         WHERE id = $1 AND status = 'pending'`,
-        [nextRow.rows[0].id],
-      );
+    if (next) {
+      await tx.update(queueItems)
+        .set({ status: 'playing', isPlayNext: false, position: 0, updatedAt: sql`now()` })
+        .where(and(eq(queueItems.id, next.id), eq(queueItems.status, 'pending')));
     }
 
     // Reset Play Next slot — no refund (D6 decision)
-    await c.query(
-      `UPDATE play_next_slot
-       SET status = 'available', holder_queue_item_id = NULL, reset_at = now()
-       WHERE event_id = $1`,
-      [eventId],
-    );
+    await tx.update(playNextSlot)
+      .set({ status: 'available', holderQueueItemId: null, resetAt: sql`now()` })
+      .where(eq(playNextSlot.eventId, eventId));
+  });
 
-    await c.query('COMMIT');
-    publishQueueChanged(eventId);
-
-    return buildQueueView(eventId, userId);
-  } catch (err) {
-    await c.query('ROLLBACK').catch(() => {});
-    throw err;
-  } finally {
-    c.release();
-  }
+  publishQueueChanged(eventId);
+  return buildQueueView(eventId, userId);
 }
 
 // ── removeQueueItem — admin remove/reject with O7 auto-refund ─────────────────
@@ -537,88 +519,79 @@ export async function removeQueueItem(
   queueItemId: string,
   adminUserId: string,
 ): Promise<RemoveResult> {
-  const c = await pool.connect();
-  try {
-    await c.query('BEGIN');
+  const refund = await db.transaction(async (tx) => {
+    const [item] = await tx
+      .select({
+        id:          queueItems.id,
+        status:      queueItems.status,
+        isPlayNext:  queueItems.isPlayNext,
+        requesterId: queueItems.requesterId,
+      })
+      .from(queueItems)
+      .where(and(eq(queueItems.id, queueItemId), eq(queueItems.eventId, eventId)))
+      .for('update');
 
-    const itemRow = await c.query(
-      `SELECT id, status, is_play_next, requester_id
-       FROM queue_items WHERE id = $1 AND event_id = $2 FOR UPDATE`,
-      [queueItemId, eventId],
-    );
-    const item = itemRow.rows[0];
     if (!item) {
-      await c.query('ROLLBACK');
       throw new QueueError('not_found', 'Queue item not found', 404);
     }
     if (item.status !== 'pending') {
-      await c.query('ROLLBACK');
       throw new QueueError('validation', 'Only a pending (not-yet-played) item can be removed', 409);
     }
 
     // Look up the original paid spend (if any) before mutating.
-    const spendRow = await c.query(
-      `SELECT amount FROM credit_transactions
-       WHERE reference_id = $1 AND type = 'spend' AND amount > 0
-       ORDER BY created_at ASC LIMIT 1`,
-      [queueItemId],
-    );
-    const spendAmount: number = spendRow.rows[0]?.amount ?? 0;
+    const [spend] = await tx
+      .select({ amount: creditTransactions.amount })
+      .from(creditTransactions)
+      .where(and(
+        eq(creditTransactions.referenceId, queueItemId),
+        eq(creditTransactions.type, 'spend'),
+        gt(creditTransactions.amount, 0),
+      ))
+      .orderBy(asc(creditTransactions.createdAt))
+      .limit(1);
+    const spendAmount = spend?.amount ?? 0;
 
     // Mark rejected and pull it out of the ordering.
-    await c.query(
-      `UPDATE queue_items
-       SET status = 'rejected', is_play_next = false, position = 0, updated_at = now()
-       WHERE id = $1`,
-      [queueItemId],
-    );
+    await tx.update(queueItems)
+      .set({ status: 'rejected', isPlayNext: false, position: 0, updatedAt: sql`now()` })
+      .where(eq(queueItems.id, queueItemId));
 
     // Recompact remaining pending positions (Play Next holder pinned first).
-    await c.query(
-      `WITH ordered AS (
-         SELECT id, ROW_NUMBER() OVER (ORDER BY is_play_next DESC, position ASC) AS rn
-         FROM queue_items WHERE event_id = $1 AND status = 'pending'
-       )
-       UPDATE queue_items qi SET position = o.rn FROM ordered o WHERE qi.id = o.id`,
-      [eventId],
-    );
+    await tx.execute(sql`
+      WITH ordered AS (
+        SELECT id, ROW_NUMBER() OVER (ORDER BY is_play_next DESC, position ASC) AS rn
+        FROM queue_items WHERE event_id = ${eventId} AND status = 'pending'
+      )
+      UPDATE queue_items qi SET position = o.rn FROM ordered o WHERE qi.id = o.id
+    `);
 
     // If it held the Play Next slot, free it.
-    if (item.is_play_next) {
-      await c.query(
-        `UPDATE play_next_slot
-         SET status = 'available', holder_queue_item_id = NULL, reset_at = now()
-         WHERE event_id = $1`,
-        [eventId],
-      );
+    if (item.isPlayNext) {
+      await tx.update(playNextSlot)
+        .set({ status: 'available', holderQueueItemId: null, resetAt: sql`now()` })
+        .where(eq(playNextSlot.eventId, eventId));
     }
 
-    // O7 auto-refund (only for paid, unplayed items).
-    let refund: { userId: string; amount: number } | null = null;
+    // O7 auto-refund (only for paid, unplayed items). Enlists in this transaction so the
+    // refund ledger row + wallet credit are atomic with the rejection.
     if (spendAmount > 0) {
       await refundCredits(
-        item.requester_id as string,
+        item.requesterId,
         spendAmount,
         'refund',
         `refund-${queueItemId}`,
         queueItemId,
         adminUserId,
-        c,
+        tx,
       );
-      refund = { userId: item.requester_id as string, amount: spendAmount };
+      return { userId: item.requesterId, amount: spendAmount };
     }
+    return null;
+  });
 
-    await c.query('COMMIT');
-    publishQueueChanged(eventId);
-
-    const queueView = await buildQueueView(eventId, adminUserId);
-    return { queueView, refund };
-  } catch (err) {
-    await c.query('ROLLBACK').catch(() => {});
-    throw err;
-  } finally {
-    c.release();
-  }
+  publishQueueChanged(eventId);
+  const queueView = await buildQueueView(eventId, adminUserId);
+  return { queueView, refund };
 }
 
 // ── reorderQueueItem — admin nudge a pending item up/down ─────────────────────
@@ -638,62 +611,46 @@ export async function reorderQueueItem(
     throw new QueueError('validation', "direction must be 'up' or 'down'", 400);
   }
 
-  const c = await pool.connect();
-  try {
-    await c.query('BEGIN');
+  const outcome = await db.transaction(async (tx) => {
+    const items = await tx
+      .select({ id: queueItems.id, position: queueItems.position, isPlayNext: queueItems.isPlayNext })
+      .from(queueItems)
+      .where(and(eq(queueItems.eventId, eventId), eq(queueItems.status, 'pending')))
+      .orderBy(asc(queueItems.position))
+      .for('update');
 
-    const rows = await c.query(
-      `SELECT id, position, is_play_next
-       FROM queue_items
-       WHERE event_id = $1 AND status = 'pending'
-       ORDER BY position ASC
-       FOR UPDATE`,
-      [eventId],
-    );
-    const items = rows.rows as { id: string; position: number; is_play_next: boolean }[];
     const idx = items.findIndex((r) => r.id === queueItemId);
     if (idx === -1) {
-      await c.query('ROLLBACK');
       throw new QueueError('not_found', 'Pending queue item not found', 404);
     }
 
     const target = items[idx];
-    if (target.is_play_next) {
-      await c.query('ROLLBACK');
+    if (target.isPlayNext) {
       throw new QueueError('validation', 'The Play Next holder is pinned and cannot be reordered', 409);
     }
 
     const neighborIdx = direction === 'up' ? idx - 1 : idx + 1;
     if (neighborIdx < 0 || neighborIdx >= items.length) {
-      await c.query('ROLLBACK'); // already at the edge — no-op
-      return buildQueueView(eventId, adminUserId);
+      return 'noop' as const; // already at the edge — no-op (nothing written)
     }
 
     const neighbor = items[neighborIdx];
-    if (neighbor.is_play_next) {
-      await c.query('ROLLBACK');
+    if (neighbor.isPlayNext) {
       throw new QueueError('validation', 'Cannot move above the Play Next holder', 409);
     }
 
-    await c.query(
-      `UPDATE queue_items SET position = $1, updated_at = now() WHERE id = $2`,
-      [neighbor.position, target.id],
-    );
-    await c.query(
-      `UPDATE queue_items SET position = $1, updated_at = now() WHERE id = $2`,
-      [target.position, neighbor.id],
-    );
+    await tx.update(queueItems)
+      .set({ position: neighbor.position, updatedAt: sql`now()` })
+      .where(eq(queueItems.id, target.id));
+    await tx.update(queueItems)
+      .set({ position: target.position, updatedAt: sql`now()` })
+      .where(eq(queueItems.id, neighbor.id));
 
-    await c.query('COMMIT');
-    publishQueueChanged(eventId);
+    return 'swapped' as const;
+  });
 
-    return buildQueueView(eventId, adminUserId);
-  } catch (err) {
-    await c.query('ROLLBACK').catch(() => {});
-    throw err;
-  } finally {
-    c.release();
-  }
+  if (outcome === 'swapped') publishQueueChanged(eventId);
+  return buildQueueView(eventId, adminUserId);
 }
 
 // ── eventStats — simple aggregates for the DJ console ─────────────────────────
@@ -707,65 +664,58 @@ export interface EventStats {
 }
 
 export async function getEventStats(eventId: string): Promise<EventStats> {
+  // These read-only aggregates (FILTER, EXISTS, window-free GROUP BY) are clearest as raw SQL.
+  // They run through the Drizzle executor (db.execute), so there are no remaining pool.query calls.
   const [counts, spend, refunded, playNext, pnPurchased, topRequesters] = await Promise.all([
-    pool.query(
-      `SELECT
-         COUNT(*) FILTER (WHERE qi.status <> 'rejected') AS request_count,
-         COUNT(*) FILTER (
-           WHERE qi.status <> 'rejected' AND EXISTS (
-             SELECT 1 FROM credit_transactions ct
-             WHERE ct.reference_id = qi.id AND ct.type = 'spend' AND ct.amount > 0
-           )
-         ) AS paid_request_count
-       FROM queue_items qi WHERE qi.event_id = $1`,
-      [eventId],
-    ),
-    pool.query(
-      `SELECT COALESCE(SUM(ct.amount), 0) AS spent
-       FROM credit_transactions ct
-       JOIN queue_items qi ON qi.id = ct.reference_id
-       WHERE qi.event_id = $1 AND ct.type = 'spend' AND ct.amount > 0`,
-      [eventId],
-    ),
-    pool.query(
-      `SELECT COALESCE(SUM(ct.amount), 0) AS refunded
-       FROM credit_transactions ct
-       JOIN queue_items qi ON qi.id = ct.reference_id
-       WHERE qi.event_id = $1 AND ct.type = 'refund'`,
-      [eventId],
-    ),
-    pool.query(`SELECT status FROM play_next_slot WHERE event_id = $1`, [eventId]),
-    pool.query(
-      `SELECT COUNT(*) AS purchased
-       FROM credit_transactions ct
-       JOIN queue_items qi ON qi.id = ct.reference_id
-       WHERE qi.event_id = $1 AND ct.reason = 'play_next' AND ct.type = 'spend'`,
-      [eventId],
-    ),
-    pool.query(
-      `SELECT qi.requester_id AS user_id,
-              COALESCE(a.display_name, 'Guest') AS display_name,
-              COUNT(DISTINCT qi.id) FILTER (WHERE qi.status <> 'rejected') AS requests,
-              COALESCE(SUM(ct.amount) FILTER (WHERE ct.type = 'spend' AND ct.amount > 0), 0) AS spent
-       FROM queue_items qi
-       LEFT JOIN accounts a ON a.user_id = qi.requester_id
-       LEFT JOIN credit_transactions ct ON ct.reference_id = qi.id
-       WHERE qi.event_id = $1
-       GROUP BY qi.requester_id, a.display_name
-       ORDER BY requests DESC, spent DESC
-       LIMIT 5`,
-      [eventId],
-    ),
+    db.execute(sql`
+      SELECT
+        COUNT(*) FILTER (WHERE qi.status <> 'rejected') AS request_count,
+        COUNT(*) FILTER (
+          WHERE qi.status <> 'rejected' AND EXISTS (
+            SELECT 1 FROM credit_transactions ct
+            WHERE ct.reference_id = qi.id AND ct.type = 'spend' AND ct.amount > 0
+          )
+        ) AS paid_request_count
+      FROM queue_items qi WHERE qi.event_id = ${eventId}`),
+    db.execute(sql`
+      SELECT COALESCE(SUM(ct.amount), 0) AS spent
+      FROM credit_transactions ct
+      JOIN queue_items qi ON qi.id = ct.reference_id
+      WHERE qi.event_id = ${eventId} AND ct.type = 'spend' AND ct.amount > 0`),
+    db.execute(sql`
+      SELECT COALESCE(SUM(ct.amount), 0) AS refunded
+      FROM credit_transactions ct
+      JOIN queue_items qi ON qi.id = ct.reference_id
+      WHERE qi.event_id = ${eventId} AND ct.type = 'refund'`),
+    db.execute(sql`SELECT status FROM play_next_slot WHERE event_id = ${eventId}`),
+    db.execute(sql`
+      SELECT COUNT(*) AS purchased
+      FROM credit_transactions ct
+      JOIN queue_items qi ON qi.id = ct.reference_id
+      WHERE qi.event_id = ${eventId} AND ct.reason = 'play_next' AND ct.type = 'spend'`),
+    db.execute(sql`
+      SELECT qi.requester_id AS user_id,
+             COALESCE(a.display_name, 'Guest') AS display_name,
+             COUNT(DISTINCT qi.id) FILTER (WHERE qi.status <> 'rejected') AS requests,
+             COALESCE(SUM(ct.amount) FILTER (WHERE ct.type = 'spend' AND ct.amount > 0), 0) AS spent
+      FROM queue_items qi
+      LEFT JOIN accounts a ON a.user_id = qi.requester_id
+      LEFT JOIN credit_transactions ct ON ct.reference_id = qi.id
+      WHERE qi.event_id = ${eventId}
+      GROUP BY qi.requester_id, a.display_name
+      ORDER BY requests DESC, spent DESC
+      LIMIT 5`),
   ]);
 
+  const countsRow = counts.rows[0] as Record<string, unknown> | undefined;
   return {
-    requestCount:     Number(counts.rows[0]?.request_count ?? 0),
-    paidRequestCount: Number(counts.rows[0]?.paid_request_count ?? 0),
-    creditsSpent:     Number(spend.rows[0]?.spent ?? 0),
-    creditsRefunded:  Number(refunded.rows[0]?.refunded ?? 0),
+    requestCount:     Number(countsRow?.request_count ?? 0),
+    paidRequestCount: Number(countsRow?.paid_request_count ?? 0),
+    creditsSpent:     Number((spend.rows[0]    as Record<string, unknown> | undefined)?.spent    ?? 0),
+    creditsRefunded:  Number((refunded.rows[0] as Record<string, unknown> | undefined)?.refunded ?? 0),
     playNext: {
-      status:         playNext.rows[0]?.status ?? 'available',
-      purchasedCount: Number(pnPurchased.rows[0]?.purchased ?? 0),
+      status:         String((playNext.rows[0]    as Record<string, unknown> | undefined)?.status    ?? 'available'),
+      purchasedCount: Number((pnPurchased.rows[0] as Record<string, unknown> | undefined)?.purchased ?? 0),
     },
     topRequesters: (topRequesters.rows as Record<string, unknown>[]).map((r) => ({
       userId:      r.user_id as string,

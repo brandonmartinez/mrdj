@@ -15,6 +15,7 @@
     "db:reset": "npm run db:reset -w api"
   },
   "devDependencies": {
-    "concurrently": "^8.2.2"
+    "concurrently": "^8.2.2",
+    "drizzle-orm": "^0.45.2"
   }
 }

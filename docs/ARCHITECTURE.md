@@ -332,7 +332,7 @@ mrdj/
 │   │   ├── realtime/            # WebSocket or SSE fan-out (O3)
 │   │   ├── admin/               # DJ console APIs and Platform Admin surfaces
 │   │   └── db/                  # Drizzle schema, client, scoped query seam (forOrg)
-│   └── migrations/              # drizzle-kit generated SQL migrations (D8)
+│   └── drizzle/                 # drizzle-kit migrations + snapshots (D8)
 ├── web/                         # React + Tailwind
 ├── k8s/                         # Kustomize manifests (or in cluster repo — O5)
 └── docs/                        # This document, PRD, slice contracts

@@ -1,8 +1,8 @@
 // Owner: Frank (interface) | Basher (integration) — see docs/ARCHITECTURE.md §5.3
 // This is the seam. Frank's webhook calls grantCredits. Basher's queue handlers
 // call spendCredits. Neither reaches into the other's implementation.
-import type { PoolClient } from 'pg';
-import { pool } from '../db/pool.js';
+import { eq, sql } from 'drizzle-orm';
+import { db, creditTransactions, wallets, pgErrorCode, type DbExecutor } from '../db/index.js';
 
 export interface CreditsResult {
   success:       boolean;
@@ -13,81 +13,68 @@ export interface CreditsResult {
 /**
  * Grant credits to a user (e.g. after successful purchase).
  * Idempotent: same idempotencyKey always returns same result without re-applying.
- * MUST be called within an existing client transaction, OR will create its own.
+ * Pass `executor` (a tx) to enlist in an existing transaction, OR omit to create its own.
  */
 export async function grantCredits(
-  userId:        string,
-  amount:        number,
-  reason:        string,
+  userId:         string,
+  amount:         number,
+  reason:         string,
   idempotencyKey: string,
-  actorId?:      string,
-  client?:       PoolClient,
+  actorId?:       string,
+  executor?:      DbExecutor,
 ): Promise<CreditsResult> {
-  const c = client ?? await pool.connect();
-  const owned = !client;
-  try {
-    if (owned) await c.query('BEGIN');
-
+  const run = async (ex: DbExecutor): Promise<CreditsResult> => {
     // Idempotency check
-    const existing = await c.query(
-      `SELECT id FROM credit_transactions WHERE idempotency_key = $1`,
-      [idempotencyKey],
-    );
-    if (existing.rows[0]) {
-      const bal = await c.query('SELECT balance FROM wallets WHERE user_id = $1', [userId]);
-      if (owned) await c.query('COMMIT');
-      return { success: true, newBalance: bal.rows[0]?.balance ?? 0, transactionId: existing.rows[0].id };
+    const [existing] = await ex
+      .select({ id: creditTransactions.id })
+      .from(creditTransactions)
+      .where(eq(creditTransactions.idempotencyKey, idempotencyKey));
+    if (existing) {
+      const [bal] = await ex.select({ balance: wallets.balance }).from(wallets).where(eq(wallets.userId, userId));
+      return { success: true, newBalance: bal?.balance ?? 0, transactionId: existing.id };
     }
 
-    const txRow = await c.query(
-      `INSERT INTO credit_transactions(user_id, type, amount, reason, idempotency_key, actor_id)
-       VALUES ($1, 'grant', $2, $3, $4, $5)
-       RETURNING id`,
-      [userId, amount, reason, idempotencyKey, actorId ?? null],
-    );
-    const txId: string = txRow.rows[0].id;
+    const [txRow] = await ex
+      .insert(creditTransactions)
+      .values({ userId, type: 'grant', amount, reason, idempotencyKey, actorId: actorId ?? null })
+      .returning({ id: creditTransactions.id });
 
-    const walletRow = await c.query(
-      `INSERT INTO wallets(user_id, balance, updated_at)
-         VALUES ($1, $2, now())
-       ON CONFLICT (user_id) DO UPDATE
-         SET balance = wallets.balance + $2, updated_at = now()
-       RETURNING balance`,
-      [userId, amount],
-    );
-    const newBalance: number = walletRow.rows[0].balance;
+    const [walletRow] = await ex
+      .insert(wallets)
+      .values({ userId, balance: amount })
+      .onConflictDoUpdate({
+        target: wallets.userId,
+        set:    { balance: sql`${wallets.balance} + ${amount}`, updatedAt: sql`now()` },
+      })
+      .returning({ balance: wallets.balance });
 
-    if (owned) await c.query('COMMIT');
-    return { success: true, newBalance, transactionId: txId };
+    return { success: true, newBalance: walletRow.balance, transactionId: txRow.id };
+  };
+
+  // Caller owns the transaction → run on their executor; their tx handles commit/rollback.
+  if (executor) return run(executor);
+
+  // We own the transaction. Drizzle BEGIN/COMMIT/ROLLBACK is automatic.
+  try {
+    return await db.transaction((tx) => run(tx));
   } catch (err) {
-    if (owned) await c.query('ROLLBACK').catch(() => {});
-
     // Race-safe idempotency recovery (Postgres 23505 = unique_violation):
     // Two concurrent grants with the same idempotencyKey can both pass the SELECT
     // idempotency check before either commits, then race on the INSERT. The loser
     // gets 23505 — recover by returning the prior result instead of a 500. The UNIQUE
     // constraint guarantees exactly one ledger row, so no double-grant ever occurs.
-    // Only safe when we own the transaction; an external client's transaction is
-    // already poisoned by the error and must be handled by the caller. Mirrors the
-    // queue-path recovery in queue/index.ts.
-    if (owned && (err as { code?: string }).code === '23505') {
-      const existingTx = await pool.query(
-        `SELECT id FROM credit_transactions WHERE idempotency_key = $1`,
-        [idempotencyKey],
-      );
-      if (existingTx.rows[0]) {
-        const bal = await pool.query('SELECT balance FROM wallets WHERE user_id = $1', [userId]);
-        return {
-          success:       true,
-          newBalance:    bal.rows[0]?.balance ?? 0,
-          transactionId: existingTx.rows[0].id,
-        };
+    // The transaction is already rolled back, so recover with fresh (non-tx) queries.
+    if (pgErrorCode(err) === '23505') {
+      const [existingTx] = await db
+        .select({ id: creditTransactions.id })
+        .from(creditTransactions)
+        .where(eq(creditTransactions.idempotencyKey, idempotencyKey));
+      if (existingTx) {
+        const [bal] = await db.select({ balance: wallets.balance }).from(wallets).where(eq(wallets.userId, userId));
+        return { success: true, newBalance: bal?.balance ?? 0, transactionId: existingTx.id };
       }
     }
-
     throw err;
-  } finally {
-    if (owned) c.release();
   }
 }
 
@@ -100,7 +87,7 @@ export interface RefundResult extends CreditsResult {
  * Append-only: writes a `type='refund'` ledger row and credits the wallet.
  * Idempotent: the caller passes a stable idempotencyKey (e.g. `refund-<queueItemId>`), so a
  * double-remove never double-refunds (the UNIQUE constraint guarantees exactly one refund row).
- * MUST be called within an existing client transaction, OR will create its own.
+ * Pass `executor` (a tx) to enlist in an existing transaction, OR omit to create its own.
  */
 export async function refundCredits(
   userId:         string,
@@ -109,87 +96,61 @@ export async function refundCredits(
   idempotencyKey: string,
   referenceId?:   string,
   actorId?:       string,
-  client?:        PoolClient,
+  executor?:      DbExecutor,
 ): Promise<RefundResult> {
-  const c = client ?? await pool.connect();
-  const owned = !client;
-  try {
-    if (owned) await c.query('BEGIN');
-
+  const run = async (ex: DbExecutor): Promise<RefundResult> => {
     // Idempotency check — already refunded → return current balance, applied once.
-    const existing = await c.query(
-      `SELECT id FROM credit_transactions WHERE idempotency_key = $1`,
-      [idempotencyKey],
-    );
-    if (existing.rows[0]) {
-      const bal = await c.query('SELECT balance FROM wallets WHERE user_id = $1', [userId]);
-      if (owned) await c.query('COMMIT');
-      return {
-        success:         true,
-        newBalance:      bal.rows[0]?.balance ?? 0,
-        transactionId:   existing.rows[0].id,
-        alreadyRefunded: true,
-      };
+    const [existing] = await ex
+      .select({ id: creditTransactions.id })
+      .from(creditTransactions)
+      .where(eq(creditTransactions.idempotencyKey, idempotencyKey));
+    if (existing) {
+      const [bal] = await ex.select({ balance: wallets.balance }).from(wallets).where(eq(wallets.userId, userId));
+      return { success: true, newBalance: bal?.balance ?? 0, transactionId: existing.id, alreadyRefunded: true };
     }
 
-    const txRow = await c.query(
-      `INSERT INTO credit_transactions(user_id, type, amount, reason, idempotency_key, reference_id, actor_id)
-       VALUES ($1, 'refund', $2, $3, $4, $5, $6)
-       RETURNING id`,
-      [userId, amount, reason, idempotencyKey, referenceId ?? null, actorId ?? null],
-    );
-    const txId: string = txRow.rows[0].id;
+    const [txRow] = await ex
+      .insert(creditTransactions)
+      .values({ userId, type: 'refund', amount, reason, idempotencyKey, referenceId: referenceId ?? null, actorId: actorId ?? null })
+      .returning({ id: creditTransactions.id });
 
-    const walletRow = await c.query(
-      `INSERT INTO wallets(user_id, balance, updated_at)
-         VALUES ($1, $2, now())
-       ON CONFLICT (user_id) DO UPDATE
-         SET balance = wallets.balance + $2, updated_at = now()
-       RETURNING balance`,
-      [userId, amount],
-    );
+    const [walletRow] = await ex
+      .insert(wallets)
+      .values({ userId, balance: amount })
+      .onConflictDoUpdate({
+        target: wallets.userId,
+        set:    { balance: sql`${wallets.balance} + ${amount}`, updatedAt: sql`now()` },
+      })
+      .returning({ balance: wallets.balance });
 
-    if (owned) await c.query('COMMIT');
-    return {
-      success:         true,
-      newBalance:      walletRow.rows[0].balance,
-      transactionId:   txId,
-      alreadyRefunded: false,
-    };
+    return { success: true, newBalance: walletRow.balance, transactionId: txRow.id, alreadyRefunded: false };
+  };
+
+  if (executor) return run(executor);
+
+  try {
+    return await db.transaction((tx) => run(tx));
   } catch (err) {
-    if (owned) await c.query('ROLLBACK').catch(() => {});
-
     // Race-safe recovery (23505): a concurrent refund with the same key won the INSERT.
-    // Only safe on the owned path; an external client's transaction is already poisoned.
-    if (owned && (err as { code?: string }).code === '23505') {
-      const existingTx = await pool.query(
-        `SELECT id FROM credit_transactions WHERE idempotency_key = $1`,
-        [idempotencyKey],
-      );
-      if (existingTx.rows[0]) {
-        const bal = await pool.query('SELECT balance FROM wallets WHERE user_id = $1', [userId]);
-        return {
-          success:         true,
-          newBalance:      bal.rows[0]?.balance ?? 0,
-          transactionId:   existingTx.rows[0].id,
-          alreadyRefunded: true,
-        };
+    // The transaction is already rolled back, so recover with fresh (non-tx) queries.
+    if (pgErrorCode(err) === '23505') {
+      const [existingTx] = await db
+        .select({ id: creditTransactions.id })
+        .from(creditTransactions)
+        .where(eq(creditTransactions.idempotencyKey, idempotencyKey));
+      if (existingTx) {
+        const [bal] = await db.select({ balance: wallets.balance }).from(wallets).where(eq(wallets.userId, userId));
+        return { success: true, newBalance: bal?.balance ?? 0, transactionId: existingTx.id, alreadyRefunded: true };
       }
     }
-
     throw err;
-  } finally {
-    if (owned) c.release();
   }
 }
 
 /** Read current credit balance for a user. */
 export async function getBalance(userId: string): Promise<number> {
-  const result = await pool.query(
-    'SELECT balance FROM wallets WHERE user_id = $1',
-    [userId],
-  );
-  return result.rows[0]?.balance ?? 0;
+  const [row] = await db.select({ balance: wallets.balance }).from(wallets).where(eq(wallets.userId, userId));
+  return row?.balance ?? 0;
 }
 
 // spendCredits and refundCredits are TODO(Basher) — the spend path lives in

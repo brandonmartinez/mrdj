@@ -1,5 +1,6 @@
 // Owner: Rusty (event reads)
-import { pool } from '../db/pool.js';
+import { eq } from 'drizzle-orm';
+import { db, events } from '../db/index.js';
 
 export interface EventRow {
   id:   string;
@@ -10,9 +11,16 @@ export interface EventRow {
 }
 
 export async function getEventBySlug(slug: string): Promise<EventRow | null> {
-  const result = await pool.query(
-    `SELECT id, slug, name, status, owner_id FROM events WHERE slug = $1 LIMIT 1`,
-    [slug],
-  );
-  return result.rows[0] ?? null;
+  const [row] = await db
+    .select({
+      id:       events.id,
+      slug:     events.slug,
+      name:     events.name,
+      status:   events.status,
+      owner_id: events.ownerId,
+    })
+    .from(events)
+    .where(eq(events.slug, slug))
+    .limit(1);
+  return row ?? null;
 }

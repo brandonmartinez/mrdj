@@ -1,6 +1,7 @@
 // Owner: Frank (refine stub; wire real Stripe integration)
 import { v4 as uuidv4 } from 'uuid';
-import { pool } from '../db/pool.js';
+import { and, eq } from 'drizzle-orm';
+import { db, creditBundles, creditTransactions, wallets } from '../db/index.js';
 import { grantCredits } from '../credits/service.js';
 import type { PaymentProvider, CheckoutSession, CheckoutResult } from './provider.js';
 
@@ -12,14 +13,14 @@ const stubSessions = new Map<string, SessionMeta>();
 export class StubPaymentProvider implements PaymentProvider {
   async createCheckoutSession(bundleId: string, userId: string): Promise<CheckoutSession> {
     // Verify bundle exists and get total credit amount (credits + bonus)
-    const bundle = await pool.query(
-      `SELECT id, label, credits, bonus_credits FROM credit_bundles WHERE id = $1`,
-      [bundleId],
-    );
-    if (!bundle.rows[0]) throw new Error(`Bundle ${bundleId} not found`);
+    const [bundle] = await db
+      .select({ credits: creditBundles.credits, bonusCredits: creditBundles.bonusCredits })
+      .from(creditBundles)
+      .where(eq(creditBundles.id, bundleId));
+    if (!bundle) throw new Error(`Bundle ${bundleId} not found`);
 
     const sessionId    = `stub_session_${uuidv4()}`;
-    const totalCredits = (bundle.rows[0].credits as number) + (bundle.rows[0].bonus_credits as number);
+    const totalCredits = bundle.credits + bundle.bonusCredits;
     stubSessions.set(sessionId, { bundleId, userId, credits: totalCredits });
 
     return {
@@ -42,16 +43,19 @@ export class StubPaymentProvider implements PaymentProvider {
       // rather than a 4xx.  Check the ledger: if this key was already processed for this
       // user, return the current balance (no second grant — CreditsService already
       // prevented it via the UNIQUE constraint).
-      const existing = await pool.query(
-        `SELECT id FROM credit_transactions WHERE idempotency_key = $1 AND user_id = $2`,
-        [idempotencyKey, userId],
-      );
-      if (existing.rows[0]) {
-        const balRow = await pool.query(
-          'SELECT balance FROM wallets WHERE user_id = $1',
-          [userId],
-        );
-        return { creditBalance: balRow.rows[0]?.balance ?? 0 };
+      const [existing] = await db
+        .select({ id: creditTransactions.id })
+        .from(creditTransactions)
+        .where(and(
+          eq(creditTransactions.idempotencyKey, idempotencyKey),
+          eq(creditTransactions.userId, userId),
+        ));
+      if (existing) {
+        const [balRow] = await db
+          .select({ balance: wallets.balance })
+          .from(wallets)
+          .where(eq(wallets.userId, userId));
+        return { creditBalance: balRow?.balance ?? 0 };
       }
       throw new Error(`Session '${sessionId}' not found — may have already been completed`);
     }

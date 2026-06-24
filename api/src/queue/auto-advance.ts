@@ -1,7 +1,8 @@
 // Owner: Basher — optional demo auto-advance timer
 // Enabled via AUTO_ADVANCE_INTERVAL_MS env var (e.g. 30000 = 30 s).
 // Default: disabled (0). The admin /advance endpoint is the primary mechanism.
-import { pool } from '../db/pool.js';
+import { sql } from 'drizzle-orm';
+import { db } from '../db/index.js';
 import { advanceQueue } from './index.js';
 
 // Stable seed admin user ID for timer-driven advances
@@ -13,22 +14,21 @@ export function startAutoAdvance(intervalMs: number): NodeJS.Timeout {
   return setInterval(async () => {
     try {
       // Find live events that have an active playing item and at least one pending item
-      const candidates = await pool.query(
-        `SELECT DISTINCT qi.event_id
-         FROM queue_items qi
-         JOIN events e ON e.id = qi.event_id
-         WHERE e.status = 'live'
-           AND EXISTS (
-             SELECT 1 FROM queue_items qi2
-             WHERE qi2.event_id = qi.event_id AND qi2.status = 'playing'
-           )
-           AND EXISTS (
-             SELECT 1 FROM queue_items qi3
-             WHERE qi3.event_id = qi.event_id AND qi3.status = 'pending'
-           )`,
-      );
+      const candidates = await db.execute<{ event_id: string }>(sql`
+        SELECT DISTINCT qi.event_id
+        FROM queue_items qi
+        JOIN events e ON e.id = qi.event_id
+        WHERE e.status = 'live'
+          AND EXISTS (
+            SELECT 1 FROM queue_items qi2
+            WHERE qi2.event_id = qi.event_id AND qi2.status = 'playing'
+          )
+          AND EXISTS (
+            SELECT 1 FROM queue_items qi3
+            WHERE qi3.event_id = qi.event_id AND qi3.status = 'pending'
+          )`);
 
-      for (const row of candidates.rows as { event_id: string }[]) {
+      for (const row of candidates.rows) {
         await advanceQueue(row.event_id, TIMER_ACTOR_ID);
         console.log(`[auto-advance] Advanced event ${row.event_id}`);
       }

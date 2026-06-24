@@ -1,40 +1,29 @@
-// Owner: Rusty (migration runner — wraps node-pg-migrate CLI)
+// Owner: Rusty (migration runner — Drizzle programmatic migrator, replaces node-pg-migrate).
+// Applies pending migrations from ./drizzle. Idempotent: drizzle-orm tracks applied
+// migrations in drizzle.__drizzle_migrations, so re-running is a no-op once up to date.
+// Uses the runtime drizzle-orm dependency (not the drizzle-kit CLI) so it works in the
+// built image / docker-compose entrypoint without dev tooling.
 import { config } from 'dotenv';
-import { resolve, join } from 'path';
-import { execSync } from 'child_process';
+import { resolve } from 'path';
 
 config({ path: resolve(process.cwd(), '../.env'), override: false });
 
-const command = process.argv[2] ?? 'up';
+import { migrate } from 'drizzle-orm/node-postgres/migrator';
+import { db } from './index.js';
+import { pool } from './pool.js';
 
-// node-pg-migrate may be hoisted to the workspace root by npm workspaces
-function resolveBin(): string {
-  const candidates = [
-    join(process.cwd(), 'node_modules', '.bin', 'node-pg-migrate'),
-    join(process.cwd(), '..', 'node_modules', '.bin', 'node-pg-migrate'),
-  ];
-  const { existsSync } = require('fs');
-  for (const c of candidates) {
-    if (existsSync(c)) return c;
-  }
-  return 'node-pg-migrate'; // fall back to PATH
+async function main(): Promise<void> {
+  const migrationsFolder = resolve(process.cwd(), 'drizzle');
+  console.log(`[migrate] Applying migrations from ${migrationsFolder}…`);
+  await migrate(db, { migrationsFolder });
+  console.log('[migrate] ✓ Migrations up to date');
 }
 
-const bin = resolveBin();
-
-function run(cmd: string) {
-  execSync(`${bin} ${cmd}`, {
-    stdio: 'inherit',
-    env: { ...process.env },
-    cwd: process.cwd(),
+main()
+  .catch((err) => {
+    console.error('[migrate] Migration failed:', err);
+    process.exitCode = 1;
+  })
+  .finally(async () => {
+    await pool.end();
   });
-}
-
-if (command === 'reset') {
-  console.log('[migrate] Dropping all migrations…');
-  try { run('down --count 999 --no-check-order'); } catch {}
-  console.log('[migrate] Running all migrations…');
-  run('up');
-} else {
-  run(command);
-}

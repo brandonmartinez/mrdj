@@ -1,6 +1,7 @@
 // Owner: Rusty (route registration)
 import type { Express } from 'express';
-import { pool } from '../db/pool.js';
+import { sql } from 'drizzle-orm';
+import { db } from '../db/index.js';
 import { cfg } from '../config/index.js';
 import { meHandler, actAsHandler } from '../identity/index.js';
 import { getQueueHandler, createRequestHandler } from '../queue/index.js';
@@ -21,7 +22,7 @@ export function registerRoutes(app: Express) {
   // ── Health ────────────────────────────────────────────────────────────────
   app.get('/api/health', async (_req, res) => {
     try {
-      await pool.query('SELECT 1');
+      await db.execute(sql`SELECT 1`);
       res.json({ status: 'ok', db: 'ok' });
     } catch {
       res.status(503).json({ status: 'ok', db: 'error' });
