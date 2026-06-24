@@ -46,8 +46,23 @@ export function registerRoutes(app: Express) {
   app.get('/api/credits/bundles', getBundlesHandler);
 
   // ── Checkout (stubs — Frank/Basher finalize) ──────────────────────────────
-  app.post('/api/checkout/session', checkoutSessionStub);
-  app.post('/api/checkout/stub-complete', checkoutCompleteHandler);
+  // Dev-only: these grant real credits with NO payment processor. In production the
+  // real path is Frank's Stripe webhook (server-to-server); leaving these ungated
+  // would let anyone mint unlimited credits. Gated exactly like /dev/act-as.
+  app.post('/api/checkout/session', (req, res) => {
+    if (!cfg.isDev) {
+      sendError(res, 403, 'forbidden', 'Stub checkout disabled in production');
+      return;
+    }
+    checkoutSessionStub(req, res);
+  });
+  app.post('/api/checkout/stub-complete', (req, res) => {
+    if (!cfg.isDev) {
+      sendError(res, 403, 'forbidden', 'Stub checkout disabled in production');
+      return;
+    }
+    checkoutCompleteHandler(req, res);
+  });
 
   // ── Admin (Basher implements) ─────────────────────────────────────────────
   app.post('/api/admin/credits/grant', requireAdmin, adminGrantHandler);

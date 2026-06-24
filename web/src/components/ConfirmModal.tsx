@@ -105,8 +105,11 @@ export function ConfirmModal({
   const handlePurchase = useCallback(async () => {
     if (!selectedBundle) return;
     setPhase('purchasing');
-    // Use a deterministic idempotency key derived from bundle + original action key
-    const checkoutKey = `checkout-${selectedBundle.id}-${idempotencyKey}`;
+    // Per-attempt idempotency key: a fresh nonce each Purchase click so that buying
+    // the same bundle more than once within a single modal session is a distinct,
+    // real purchase (not a replayed no-op). The key is computed once here and reused
+    // for the awaited checkoutComplete, so it still dedupes a single click's retries.
+    const checkoutKey = `checkout-${selectedBundle.id}-${crypto.randomUUID()}`;
     try {
       const session = await api.checkoutSession(selectedBundle.id);
       const result = await api.checkoutComplete(session.sessionId, checkoutKey);
@@ -117,7 +120,7 @@ export function ConfirmModal({
       setErrorMsg(err instanceof Error ? err.message : 'Checkout failed. Try again.');
       setPhase('error');
     }
-  }, [selectedBundle, idempotencyKey, cost]);
+  }, [selectedBundle, cost]);
 
   const resultingBalance = currentBalance - cost;
 

@@ -60,7 +60,31 @@ export async function grantCredits(
     if (owned) await c.query('COMMIT');
     return { success: true, newBalance, transactionId: txId };
   } catch (err) {
-    if (owned) await c.query('ROLLBACK');
+    if (owned) await c.query('ROLLBACK').catch(() => {});
+
+    // Race-safe idempotency recovery (Postgres 23505 = unique_violation):
+    // Two concurrent grants with the same idempotencyKey can both pass the SELECT
+    // idempotency check before either commits, then race on the INSERT. The loser
+    // gets 23505 — recover by returning the prior result instead of a 500. The UNIQUE
+    // constraint guarantees exactly one ledger row, so no double-grant ever occurs.
+    // Only safe when we own the transaction; an external client's transaction is
+    // already poisoned by the error and must be handled by the caller. Mirrors the
+    // queue-path recovery in queue/index.ts.
+    if (owned && (err as { code?: string }).code === '23505') {
+      const existingTx = await pool.query(
+        `SELECT id FROM credit_transactions WHERE idempotency_key = $1`,
+        [idempotencyKey],
+      );
+      if (existingTx.rows[0]) {
+        const bal = await pool.query('SELECT balance FROM wallets WHERE user_id = $1', [userId]);
+        return {
+          success:       true,
+          newBalance:    bal.rows[0]?.balance ?? 0,
+          transactionId: existingTx.rows[0].id,
+        };
+      }
+    }
+
     throw err;
   } finally {
     if (owned) c.release();
