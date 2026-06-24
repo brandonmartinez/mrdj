@@ -8,6 +8,13 @@
       "when": 1782314831217,
       "tag": "0000_baseline_slice01_02",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1782324346098,
+      "tag": "0001_org_membership_area",
+      "breakpoints": true
     }
   ]
 }

@@ -37,6 +37,29 @@ export const accounts = pgTable('accounts', {
   check('accounts_role_check', sql`${t.role} IN ('user', 'admin')`),
 ]);
 
+// ── Multi-tenancy (Epic 2, D7) ───────────────────────────────────────────────
+// Organization = tenant (DJ business; a solo DJ is an org of one). Owns events,
+// memberships, wallets/credits, pricing, and (Epic 4) the Stripe connected account.
+export const organizations = pgTable('organizations', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  slug: text('slug').notNull().unique(),
+  name: text('name').notNull(),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
+// Membership links an Account to an Organization with an org role (replaces the
+// global admin assumption from D3). Guests never have memberships.
+export const memberships = pgTable('memberships', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  organizationId: uuid('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
+  accountId: uuid('account_id').notNull().references(() => accounts.id, { onDelete: 'cascade' }),
+  role: text('role').notNull().default('staff'),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  unique('memberships_org_account_key').on(t.organizationId, t.accountId),
+  check('memberships_role_check', sql`${t.role} IN ('owner', 'manager', 'dj', 'staff')`),
+]);
+
 export const guestSessions = pgTable('guest_sessions', {
   id: uuid('id').primaryKey().defaultRandom(),
   userId: uuid('user_id').notNull().unique().references(() => users.id, { onDelete: 'cascade' }),
@@ -56,6 +79,20 @@ export const events = pgTable('events', {
   endedAt: timestamp('ended_at', { withTimezone: true }),
 }, (t) => [
   check('events_status_check', sql`${t.status} IN ('draft', 'live', 'ended')`),
+]);
+
+// Area = optional Event subdivision (zone/stage). Every Event has at least one
+// default Area; each Area owns its own queue + Play Next slot. organization_id is
+// denormalized from the parent Event for direct tenant scoping via forOrg.
+export const areas = pgTable('areas', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  eventId: uuid('event_id').notNull().references(() => events.id, { onDelete: 'cascade' }),
+  organizationId: uuid('organization_id').notNull().references(() => organizations.id, { onDelete: 'cascade' }),
+  name: text('name').notNull(),
+  isDefault: boolean('is_default').notNull().default(false),
+  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+}, (t) => [
+  index('idx_areas_event').on(t.eventId),
 ]);
 
 export const tracks = pgTable('tracks', {

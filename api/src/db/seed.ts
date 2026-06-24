@@ -9,6 +9,7 @@ import { sql } from 'drizzle-orm';
 import {
   db, users, accounts, events, tracks, queueItems,
   playNextSlot, wallets, creditTransactions, pricingConfig, creditBundles,
+  organizations, memberships, areas,
 } from './index.js';
 import { pool } from './pool.js';
 
@@ -24,6 +25,9 @@ const IDS = {
   bundleStarter: '00000000-0000-0000-0000-000000000040',
   bundleParty:   '00000000-0000-0000-0000-000000000041',
   bundleVip:     '00000000-0000-0000-0000-000000000042',
+  defaultOrg:    '00000000-0000-0000-0000-000000000050',
+  adminMember:   '00000000-0000-0000-0000-000000000051',
+  demoArea:      '00000000-0000-0000-0000-000000000052',
 } as const;
 
 const trackId = (n: number) =>
@@ -87,6 +91,13 @@ async function seed() {
         { id: IDS.guestUser, type: 'guest' },
       ]).onConflictDoNothing({ target: users.id });
 
+      // Default Organization (tenant) — resolvable at /o/demo
+      await tx.insert(organizations).values({
+        id:   IDS.defaultOrg,
+        slug: 'demo',
+        name: "Mr. DJ Demo Organization",
+      }).onConflictDoNothing({ target: organizations.id });
+
       // Admin account (role = admin)
       await tx.insert(accounts).values({
         id:          IDS.adminAccount,
@@ -98,6 +109,14 @@ async function seed() {
         role:        'admin',
       }).onConflictDoNothing({ target: accounts.id });
 
+      // Owner Membership: admin account owns the default org
+      await tx.insert(memberships).values({
+        id:             IDS.adminMember,
+        organizationId: IDS.defaultOrg,
+        accountId:      IDS.adminAccount,
+        role:           'owner',
+      }).onConflictDoNothing({ target: memberships.id });
+
       // Demo event — "The Ocean's Eleven After Party" (slug: demo)
       await tx.insert(events).values({
         id:        IDS.demoEvent,
@@ -107,6 +126,15 @@ async function seed() {
         status:    'live',
         startedAt: sql`now()`,
       }).onConflictDoNothing({ target: events.id });
+
+      // Default Area for the demo event (each Event has ≥1 Area; queue lives here)
+      await tx.insert(areas).values({
+        id:             IDS.demoArea,
+        eventId:        IDS.demoEvent,
+        organizationId: IDS.defaultOrg,
+        name:           'Main Floor',
+        isDefault:      true,
+      }).onConflictDoNothing({ target: areas.id });
 
       // 15 CC/public-domain tracks
       await tx.insert(tracks).values(
