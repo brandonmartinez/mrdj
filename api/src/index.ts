@@ -43,6 +43,12 @@ async function main() {
         startAutoAdvance(cfg.autoAdvanceIntervalMs);
       });
     }
+
+    if (cfg.nodeEnv !== 'test' && process.env.VITEST !== 'true' && cfg.guestSessionPruneIntervalMs > 0) {
+      import('./guest-sessions/index.js').then(({ startGuestSessionPruner }) => {
+        startGuestSessionPruner(cfg.guestSessionPruneIntervalMs);
+      });
+    }
   });
 
   process.on('SIGTERM', async () => {

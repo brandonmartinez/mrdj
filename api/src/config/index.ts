@@ -18,6 +18,9 @@ export const cfg = {
                             ?? process.env.DATABASE_URL
                             ?? 'postgresql://mrdj:mrdj@localhost:5432/mrdj',
   sessionSecret:           process.env.SESSION_SECRET ?? 'dev-secret-change-in-prod',
+  // Domain guest_sessions pruning (#115). 15 min mirrors connect-pg-simple's session prune cadence.
+  // Set GUEST_SESSION_PRUNE_INTERVAL_MS=0 to disable periodic pruning.
+  guestSessionPruneIntervalMs: parseInt(process.env.GUEST_SESSION_PRUNE_INTERVAL_MS ?? String(15 * 60 * 1000), 10),
   isDev:                   (process.env.NODE_ENV ?? 'development') === 'development',
   // Demo auto-advance (default off; set AUTO_ADVANCE_INTERVAL_MS=30000 for 30-s demo)
   autoAdvanceIntervalMs:   parseInt(process.env.AUTO_ADVANCE_INTERVAL_MS ?? '0', 10),

@@ -78,7 +78,9 @@ export const guestSessions = pgTable('guest_sessions', {
   sessionToken: text('session_token').notNull().unique(),
   expiresAt: timestamp('expires_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-});
+}, (t) => [
+  index('idx_guest_sessions_expires_at').on(t.expiresAt),
+]);
 
 export const events = pgTable('events', {
   id: uuid('id').primaryKey().defaultRandom(),
