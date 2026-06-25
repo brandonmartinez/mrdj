@@ -1,43 +1,42 @@
 // Owner: Basher (realtime transport) — resolves O3 (SSE).
-// See docs/slice-02-contract.md §1.
+// See docs/slice-02-contract.md §1 and the broker ADR docs/decisions/realtime-broker.md (#18).
 //
 // Invalidation-signal pattern: the stream carries only a lightweight "queue changed"
 // signal — never per-user data (balances). Clients re-fetch GET /events/:slug/queue,
 // which is already per-user and authoritative.
 //
-// Broker = in-process EventEmitter (single process — the local/MVP deliverable). The
-// publish/subscribe seam allows a Postgres LISTEN/NOTIFY broker for multi-replica prod
-// later (note: PgBouncer transaction pooling can't LISTEN/NOTIFY — that listener needs a
-// direct Postgres connection). Not built in this slice.
+// The publish/subscribe seam lives behind RealtimeService (./service.ts). This slice wires the
+// in-process EventEmitter implementation (single replica); a Postgres LISTEN/NOTIFY implementation
+// can be dropped in for multi-replica prod (#21) without changing any handler below.
 import type { Request, Response } from 'express';
-import { EventEmitter } from 'node:events';
 import { and, eq } from 'drizzle-orm';
 import { db, areas } from '../db/index.js';
 import { getEventBySlug } from '../event/index.js';
 import { sendError } from '../http/middleware.js';
+import {
+  InProcessRealtimeService, queueChannel, isQueueChannel,
+  type RealtimeService, type QueueChangedEvent,
+} from './service.js';
 
-const bus = new EventEmitter();
-// One process may fan out to many guest + console connections.
-bus.setMaxListeners(0);
+// The active broker. Swap this single binding to change transports (e.g. a LISTEN/NOTIFY broker).
+const realtime: RealtimeService = new InProcessRealtimeService();
 
 const HEARTBEAT_MS = 25_000;
 
-// Channels are scoped to an Area so multi-area events fan out independently (#25/#70/#91).
-function channel(eventId: string, areaId: string): string {
-  return `queue:${eventId}:${areaId}`;
-}
-
 /** Notify subscribers of one Area that its queue changed. Safe to call post-commit. */
 export function publishQueueChanged(eventId: string, areaId: string): void {
-  bus.emit(channel(eventId, areaId), { type: 'queue:changed', eventId, areaId, at: new Date().toISOString() });
+  realtime.publish(queueChannel(eventId, areaId), {
+    type: 'queue:changed', eventId, areaId, at: new Date().toISOString(),
+  });
 }
 
 /** Broadcast a change to every active area stream (used by non-area-scoped mutations
  *  like admin credit grants, where a user's balance — shown in the queue view — changed). */
 export function publishAll(): void {
-  for (const name of bus.eventNames()) {
-    if (typeof name === 'string' && name.startsWith('queue:')) {
-      bus.emit(name, { type: 'queue:changed', at: new Date().toISOString() });
+  const at = new Date().toISOString();
+  for (const name of realtime.channelNames()) {
+    if (isQueueChannel(name)) {
+      realtime.publish(name, { type: 'queue:changed', at });
     }
   }
 }
@@ -80,11 +79,10 @@ export async function streamHandler(req: Request, res: Response): Promise<void> 
   // Initial hello so the client knows the stream is live.
   res.write(`event: hello\ndata: ${JSON.stringify({ eventId: event.id, areaId, at: new Date().toISOString() })}\n\n`);
 
-  const onChange = (payload: unknown): void => {
+  const onChange = (payload: QueueChangedEvent): void => {
     res.write(`event: queue\ndata: ${JSON.stringify(payload)}\n\n`);
   };
-  const ch = channel(event.id, areaId);
-  bus.on(ch, onChange);
+  const unsubscribe = realtime.subscribe(queueChannel(event.id, areaId), onChange);
 
   const heartbeat = setInterval(() => {
     res.write(`: heartbeat ${Date.now()}\n\n`);
@@ -92,7 +90,7 @@ export async function streamHandler(req: Request, res: Response): Promise<void> 
 
   const cleanup = (): void => {
     clearInterval(heartbeat);
-    bus.off(ch, onChange);
+    unsubscribe();
   };
   req.on('close', cleanup);
   res.on('error', cleanup);
