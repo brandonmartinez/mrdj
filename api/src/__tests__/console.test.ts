@@ -327,6 +327,46 @@ describe('Stats endpoint', () => {
     expect(Array.isArray(s.topRequesters)).toBe(true);
     expect(s.playNext.status).toBe('available');
   });
+
+  it('scopes stats to an optional areaId and defaults to the default area', async () => {
+    const created = await apiCall<{ area: { id: string } }>(
+      'POST', '/orgs/demo/events/demo/areas', { name: `Stats ${uuid().slice(0, 6)}` }, adminCookie,
+    );
+    expect(created.status).toBe(201);
+    const areaId = created.body.area.id;
+
+    try {
+      const defaultPost = await apiCall('POST', '/events/demo/requests',
+        { trackId: TRACK_CL, tier: 'boost', idempotencyKey: `stat-default-${uuid()}` }, guestCookie);
+      expect(defaultPost.status).toBe(201);
+      const scopedPost = await apiCall('POST', '/events/demo/requests',
+        { trackId: TRACK_FE, tier: 'queue', areaId, idempotencyKey: `stat-area-${uuid()}` }, guestCookie);
+      expect(scopedPost.status).toBe(201);
+
+      const defaultStats = await apiCall<{ stats: { creditsSpent: number; paidRequestCount: number } }>(
+        'GET', '/admin/events/demo/stats', undefined, adminCookie);
+      const areaStats = await apiCall<{ stats: { creditsSpent: number; paidRequestCount: number; requestCount: number } }>(
+        'GET', `/admin/events/demo/stats?areaId=${areaId}`, undefined, adminCookie);
+
+      expect(defaultStats.status).toBe(200);
+      expect(areaStats.status).toBe(200);
+      expect(defaultStats.body.stats.creditsSpent).toBeGreaterThanOrEqual(1);
+      expect(defaultStats.body.stats.paidRequestCount).toBeGreaterThanOrEqual(1);
+      expect(areaStats.body.stats.requestCount).toBe(1);
+      expect(areaStats.body.stats.creditsSpent).toBe(0);
+      expect(areaStats.body.stats.paidRequestCount).toBe(0);
+
+      const mismatch = await apiCall<{ error: { code: string } }>(
+        'GET', `/admin/events/demo/stats?areaId=${uuid()}`, undefined, adminCookie);
+      expect(mismatch.status).toBe(404);
+      expect(mismatch.body.error.code).toBe('not_found');
+    } finally {
+      await db.query(`DELETE FROM credit_transactions WHERE reference_id IN (SELECT id FROM queue_items WHERE area_id = $1)`, [areaId]).catch(() => {});
+      await db.query(`DELETE FROM queue_items WHERE area_id = $1`, [areaId]).catch(() => {});
+      await db.query(`DELETE FROM play_next_slot WHERE area_id = $1`, [areaId]).catch(() => {});
+      await db.query(`DELETE FROM areas WHERE id = $1`, [areaId]).catch(() => {});
+    }
+  });
 });
 
 // ── H-01 · Concurrent-spend hardening (23514 → 402, never 500) ───────────────

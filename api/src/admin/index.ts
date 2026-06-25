@@ -163,8 +163,16 @@ export async function adminStatsHandler(req: Request, res: Response) {
   }
   if (!(await requireConsoleDj(req, res, event))) return;
 
-  const stats = await getEventStats(event.id, queryAreaId(req));
-  res.json({ stats });
+  try {
+    const stats = await getEventStats(event.id, queryAreaId(req));
+    res.json({ stats });
+  } catch (err) {
+    if (err instanceof QueueError) {
+      sendError(res, err.status, err.code, err.message);
+      return;
+    }
+    throw err;
+  }
 }
 
 // ── POST /api/admin/events/:slug/advance ──────────────────────────────────────
