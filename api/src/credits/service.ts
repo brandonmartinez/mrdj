@@ -10,6 +10,13 @@ export interface CreditsResult {
   transactionId: string | null;
 }
 
+export class CreditIdempotencyConflictError extends Error {
+  constructor() {
+    super('Idempotency key was already used for a different principal or operation');
+    this.name = 'CreditIdempotencyConflictError';
+  }
+}
+
 /**
  * Grant credits to a user (e.g. after successful purchase).
  * Idempotent: same idempotencyKey always returns same result without re-applying.
@@ -24,13 +31,23 @@ export async function grantCredits(
   actorId?:       string,
   executor?:      DbExecutor,
 ): Promise<CreditsResult> {
+  const operationNamespace = `grant:${reason.split(':', 1)[0]}`;
   const run = async (ex: DbExecutor): Promise<CreditsResult> => {
+    await ex.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${idempotencyKey}))`);
     // Idempotency check
     const [existing] = await ex
-      .select({ id: creditTransactions.id })
+      .select({
+        id: creditTransactions.id,
+        userId: creditTransactions.userId,
+        organizationId: creditTransactions.organizationId,
+        operationNamespace: creditTransactions.operationNamespace,
+      })
       .from(creditTransactions)
       .where(eq(creditTransactions.idempotencyKey, idempotencyKey));
     if (existing) {
+      if (existing.userId !== userId || existing.organizationId !== organizationId || existing.operationNamespace !== operationNamespace) {
+        throw new CreditIdempotencyConflictError();
+      }
       const [bal] = await ex.select({ balance: wallets.balance }).from(wallets)
         .where(and(eq(wallets.userId, userId), eq(wallets.organizationId, organizationId)));
       return { success: true, newBalance: bal?.balance ?? 0, transactionId: existing.id };
@@ -38,7 +55,7 @@ export async function grantCredits(
 
     const [txRow] = await ex
       .insert(creditTransactions)
-      .values({ userId, organizationId, type: 'grant', amount, reason, idempotencyKey, actorId: actorId ?? null })
+      .values({ userId, organizationId, operationNamespace, type: 'grant', amount, reason, idempotencyKey, actorId: actorId ?? null })
       .returning({ id: creditTransactions.id });
 
     const [walletRow] = await ex
@@ -102,13 +119,23 @@ export async function refundCredits(
   actorId?:       string,
   executor?:      DbExecutor,
 ): Promise<RefundResult> {
+  const operationNamespace = `refund:${reason.split(':', 1)[0]}`;
   const run = async (ex: DbExecutor): Promise<RefundResult> => {
+    await ex.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${idempotencyKey}))`);
     // Idempotency check — already refunded → return current balance, applied once.
     const [existing] = await ex
-      .select({ id: creditTransactions.id })
+      .select({
+        id: creditTransactions.id,
+        userId: creditTransactions.userId,
+        organizationId: creditTransactions.organizationId,
+        operationNamespace: creditTransactions.operationNamespace,
+      })
       .from(creditTransactions)
       .where(eq(creditTransactions.idempotencyKey, idempotencyKey));
     if (existing) {
+      if (existing.userId !== userId || existing.organizationId !== organizationId || existing.operationNamespace !== operationNamespace) {
+        throw new CreditIdempotencyConflictError();
+      }
       const [bal] = await ex.select({ balance: wallets.balance }).from(wallets)
         .where(and(eq(wallets.userId, userId), eq(wallets.organizationId, organizationId)));
       return { success: true, newBalance: bal?.balance ?? 0, transactionId: existing.id, alreadyRefunded: true };
@@ -116,7 +143,7 @@ export async function refundCredits(
 
     const [txRow] = await ex
       .insert(creditTransactions)
-      .values({ userId, organizationId, type: 'refund', amount, reason, idempotencyKey, referenceId: referenceId ?? null, actorId: actorId ?? null })
+      .values({ userId, organizationId, operationNamespace, type: 'refund', amount, reason, idempotencyKey, referenceId: referenceId ?? null, actorId: actorId ?? null })
       .returning({ id: creditTransactions.id });
 
     const [walletRow] = await ex

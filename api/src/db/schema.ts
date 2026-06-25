@@ -175,14 +175,18 @@ export const creditTransactions = pgTable('credit_transactions', {
   id: uuid('id').primaryKey().defaultRandom(),
   userId: uuid('user_id').notNull().references(() => users.id),
   organizationId: uuid('organization_id').notNull().references(() => organizations.id),
+  operationNamespace: text('operation_namespace').notNull().default('legacy'),
   type: text('type').notNull(),
   amount: integer('amount').notNull(),
   reason: text('reason').notNull(),
   referenceId: uuid('reference_id'),
-  idempotencyKey: text('idempotency_key').notNull().unique(),
+  idempotencyKey: text('idempotency_key').notNull(),
   actorId: uuid('actor_id').references(() => users.id),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
+  unique('credit_transactions_principal_operation_idem_key')
+    .on(t.userId, t.organizationId, t.operationNamespace, t.idempotencyKey),
+  index('idx_credit_transactions_idempotency_key').on(t.idempotencyKey),
   check('credit_transactions_type_check', sql`${t.type} IN ('grant', 'spend', 'refund')`),
 ]);
 

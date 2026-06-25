@@ -170,6 +170,42 @@ describe('Guest identity isolation', () => {
     expect(balances[a.body.user.id]).toBe(4);
     expect(balances[b.body.user.id]).toBe(9);
   });
+
+  it('does not replay queue idempotency keys across guests or operations', async () => {
+    const a = await apiCall<{ user: { id: string } }>('GET', '/me');
+    const b = await apiCall<{ user: { id: string } }>('GET', '/me');
+    const aCookie = cookieOf(a);
+    const bCookie = cookieOf(b);
+    const key = `idem-scope-${uuid()}`;
+
+    await db.query(
+      `INSERT INTO wallets (user_id, organization_id, balance)
+       VALUES ($1, $3, 5), ($2, $3, 5)
+       ON CONFLICT (user_id, organization_id) DO UPDATE SET balance = EXCLUDED.balance`,
+      [a.body.user.id, b.body.user.id, DEFAULT_ORG],
+    );
+
+    const first = await apiCall<{ queueItem: { id: string } }>(
+      'POST', '/events/demo/requests', { trackId: TRACK_CL, tier: 'boost', idempotencyKey: key }, aCookie,
+    );
+    expect(first.status).toBe(201);
+
+    const retry = await apiCall<{ queueItem: { id: string } }>(
+      'POST', '/events/demo/requests', { trackId: TRACK_CL, tier: 'boost', idempotencyKey: key }, aCookie,
+    );
+    expect(retry.status).toBe(200);
+    expect(retry.body.queueItem.id).toBe(first.body.queueItem.id);
+
+    const otherGuest = await apiCall(
+      'POST', '/events/demo/requests', { trackId: TRACK_CL, tier: 'boost', idempotencyKey: key }, bCookie,
+    );
+    expect(otherGuest.status).toBe(409);
+
+    const otherOperation = await apiCall(
+      'POST', '/events/demo/requests', { trackId: TRACK_CL, tier: 'queue', idempotencyKey: key }, aCookie,
+    );
+    expect(otherOperation.status).toBe(409);
+  });
 });
 
 describe('Epic 3 — guest → account credit merge (#89)', () => {

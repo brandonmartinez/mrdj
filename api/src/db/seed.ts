@@ -186,11 +186,19 @@ async function seed() {
         id:             IDS.ctGuestInit,
         userId:         IDS.guestUser,
         organizationId: IDS.defaultOrg,
+        operationNamespace: 'grant:promo',
         type:           'grant',
         amount:         2,
         reason:         'promo',
         idempotencyKey: 'seed:guest-initial-2-credits',
-      }).onConflictDoNothing({ target: creditTransactions.idempotencyKey });
+      }).onConflictDoNothing({
+        target: [
+          creditTransactions.userId,
+          creditTransactions.organizationId,
+          creditTransactions.operationNamespace,
+          creditTransactions.idempotencyKey,
+        ],
+      });
 
       // Server-side pricing config (never sent raw to frontend except via QueueView.pricing)
       await tx.insert(pricingConfig).values([

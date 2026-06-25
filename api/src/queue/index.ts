@@ -309,6 +309,9 @@ export async function createRequestHandler(req: Request, res: Response) {
       cost = tier === 'queue' ? pricing.queue
            : tier === 'boost' ? pricing.boost
            : pricing.playNext;
+      const operationNamespace = `queue:${tier}`;
+
+      await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtext(${idempotencyKey}))`);
 
       // ── Acquire Play Next slot lock BEFORE idempotency check ─────────────
       // FOR UPDATE serialises concurrent play_next purchases; held until COMMIT/ROLLBACK.
@@ -319,10 +322,23 @@ export async function createRequestHandler(req: Request, res: Response) {
 
       // ── Idempotency: same key → return original result, no second charge ──
       const [existingTx] = await tx
-        .select({ id: creditTransactions.id, referenceId: creditTransactions.referenceId })
+        .select({
+          id: creditTransactions.id,
+          referenceId: creditTransactions.referenceId,
+          userId: creditTransactions.userId,
+          organizationId: creditTransactions.organizationId,
+          operationNamespace: creditTransactions.operationNamespace,
+        })
         .from(creditTransactions)
         .where(eq(creditTransactions.idempotencyKey, idempotencyKey));
       if (existingTx) {
+        if (
+          existingTx.userId !== userId
+          || existingTx.organizationId !== event.organization_id
+          || existingTx.operationNamespace !== operationNamespace
+        ) {
+          return { kind: 'idempotency_conflict' as const };
+        }
         // No writes happened; committing the (empty) tx releases any FOR UPDATE lock.
         return { kind: 'idempotent' as const, queueItemId: existingTx.referenceId as string };
       }
@@ -404,6 +420,7 @@ export async function createRequestHandler(req: Request, res: Response) {
         userId,
         organizationId: event.organization_id,
         type:        'spend',
+        operationNamespace,
         amount:      cost,
         reason:      tier,
         idempotencyKey,
@@ -439,6 +456,11 @@ export async function createRequestHandler(req: Request, res: Response) {
         creditBalance,
         queueView,
       });
+      return;
+    }
+
+    if (result.kind === 'idempotency_conflict') {
+      sendError(res, 409, 'validation', 'Idempotency key was already used for a different principal or operation');
       return;
     }
 
@@ -478,10 +500,21 @@ export async function createRequestHandler(req: Request, res: Response) {
     if (pgErrorCode(err) === '23505' && idempotencyKey) {
       try {
         const [existingTx] = await db
-          .select({ id: creditTransactions.id, referenceId: creditTransactions.referenceId })
+          .select({
+            id: creditTransactions.id,
+            referenceId: creditTransactions.referenceId,
+            userId: creditTransactions.userId,
+            organizationId: creditTransactions.organizationId,
+            operationNamespace: creditTransactions.operationNamespace,
+          })
           .from(creditTransactions)
           .where(eq(creditTransactions.idempotencyKey, idempotencyKey));
-        if (existingTx) {
+        if (
+          existingTx
+          && existingTx.userId === userId
+          && existingTx.organizationId === event.organization_id
+          && existingTx.operationNamespace === `queue:${tier}`
+        ) {
           const [queueItem, queueView, creditBalance] = await Promise.all([
             fetchQueueItem(existingTx.referenceId as string),
             buildQueueView(event.id, userId, targetAreaId),
