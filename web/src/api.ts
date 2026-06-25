@@ -109,6 +109,42 @@ export class ApiRequestError extends Error {
   }
 }
 
+export const AUTH_EXPIRED_EVENT = 'mrdj:auth-expired';
+
+function isProtectedBrowserPath(pathname: string) {
+  return pathname === '/onboarding' ||
+    /^\/o\/[^/]+\/(?:dashboard|members|pricing|earnings)(?:\/|$)/.test(pathname) ||
+    /^\/o\/[^/]+\/events(?:\/?$|\/[^/]+\/(?:manage|console)(?:\/|$))/.test(pathname);
+}
+
+function shouldHandleUnauthorized(path: string) {
+  if (path === '/api/me') return false;
+  if (path.includes('/public')) return false;
+  if (path.startsWith('/api/admin/')) return true;
+  if (path.startsWith('/api/me/orgs')) return true;
+  if (path.startsWith('/api/orgs/')) return true;
+  return typeof window !== 'undefined' && isProtectedBrowserPath(window.location.pathname);
+}
+
+function handleUnauthorized(path: string) {
+  if (typeof window === 'undefined' || !shouldHandleUnauthorized(path)) return;
+  window.dispatchEvent(new CustomEvent(AUTH_EXPIRED_EVENT));
+  if (isProtectedBrowserPath(window.location.pathname) && window.location.pathname !== '/login') {
+    const next = `${window.location.pathname}${window.location.search}`;
+    window.location.assign(`/login?expired=1&next=${encodeURIComponent(next)}`);
+  }
+}
+
+async function parseJsonBody<T>(res: Response): Promise<T | undefined> {
+  if (res.status === 204) return undefined;
+  if (res.headers.get('content-length') === '0') return undefined;
+  const contentType = res.headers.get('content-type') ?? '';
+  const text = await res.text();
+  if (!text.trim()) return undefined;
+  if (!contentType.toLowerCase().includes('application/json')) return undefined;
+  return JSON.parse(text) as T;
+}
+
 async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
   const { headers: extraHeaders, ...rest } = options ?? {};
   const res = await fetch(path, {
@@ -117,9 +153,10 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
     ...rest,
   });
   if (!res.ok) {
-    const body = await res.json().catch(() => ({})) as {
+    if (res.status === 401) handleUnauthorized(path);
+    const body = await parseJsonBody<{
       error?: { code?: string; message?: string; required?: number; balance?: number };
-    };
+    }>(res).catch(() => undefined);
     const err = body?.error ?? {};
     throw new ApiRequestError(
       err.message ?? `HTTP ${res.status}`,
@@ -128,7 +165,7 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
       { required: err.required, balance: err.balance }
     );
   }
-  return res.json() as Promise<T>;
+  return (await parseJsonBody<T>(res)) as T;
 }
 
 export const api = {

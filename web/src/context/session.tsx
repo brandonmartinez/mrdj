@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import type { ReactNode } from 'react';
-import { api, orgApi } from '../api.ts';
+import { api, AUTH_EXPIRED_EVENT, orgApi } from '../api.ts';
 import type { MeResponse, MyOrg } from '../api.ts';
 
 interface SessionValue {
@@ -38,6 +38,16 @@ export function SessionProvider({ children }: { children: ReactNode }) {
   }, []);
 
   useEffect(() => { void refresh(); }, [refresh]);
+
+  useEffect(() => {
+    const clearSession = () => {
+      setMe(null);
+      setOrgs([]);
+      setLoading(false);
+    };
+    window.addEventListener(AUTH_EXPIRED_EVENT, clearSession);
+    return () => window.removeEventListener(AUTH_EXPIRED_EVENT, clearSession);
+  }, []);
 
   const isAuthed = !!me && me.user.type === 'account';
 
