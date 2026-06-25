@@ -27,7 +27,9 @@ as a fallback tier, so a provider outage degrades to local results instead of a
 ## Caching & TTL (#22, #27)
 
 Search/resolve results are upserted into the `tracks` table keyed by
-`(provider, provider_id)`. The internal `tracks.id` UUID is stable across
+`(provider, provider_id)`. `provider_id` is the provider-native external id and
+is never treated as globally unique; every cache read/write includes `provider`
+so future providers cannot collide with iTunes ids. The internal `tracks.id` UUID is stable across
 re-resolution, so queue references survive. Reads check `cached_at` against
 `TRACK_CACHE_TTL_MS`; stale entries trigger a provider re-fetch that refreshes
 `preview_url` + `cached_at` in place (`cache.ts`).

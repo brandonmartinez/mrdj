@@ -10,6 +10,7 @@
 export interface Track {
   id:         string;
   provider:   string;
+  /** Provider-native track id; unique only with `provider` (cache key: provider + providerId). */
   providerId: string;
   title:      string;
   artist:     string;
@@ -35,6 +36,7 @@ export interface MusicProvider {
   /**
    * Re-fetch a single track by its provider-native ID (queue hydration / stale
    * preview re-resolution, #27). Returns null if the provider no longer has it.
+   * providerId is interpreted within this provider's namespace, never globally.
    */
   resolve(providerId: string, signal?: AbortSignal): Promise<Track | null>;
 }

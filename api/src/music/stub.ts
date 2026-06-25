@@ -1,7 +1,7 @@
 // Owner: Livingston (refine stub, add real providers)
 // StubMusicProvider: reads seeded tracks from the DB (provider='stub'), filters by
 // query. Remains the dev/test fallback and the default when MUSIC_PROVIDER=stub.
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 import { db, tracks } from '../db/index.js';
 import { searchStubTracks, rowToTrack, TRACK_COLS } from './cache.js';
 import type { MusicProvider, Track } from './provider.js';
@@ -17,7 +17,7 @@ export class StubMusicProvider implements MusicProvider {
     const [row] = await db
       .select(TRACK_COLS)
       .from(tracks)
-      .where(eq(tracks.providerId, providerId));
+      .where(and(eq(tracks.provider, this.name), eq(tracks.providerId, providerId)));
     return row ? rowToTrack(row) : null;
   }
 }

@@ -257,6 +257,43 @@ describe('ITunesMusicProvider.resolve (TTL cache)', () => {
   });
 });
 
+
+// ── Provider-safe cache seam (#107) ─────────────────────────────────────────────
+describe('track cache provider namespacing', () => {
+  afterEach(async () => {
+    await db.delete(tracks).where(eq(tracks.provider, 'provider-a'));
+    await db.delete(tracks).where(eq(tracks.provider, 'provider-b'));
+  });
+
+  it('keeps identical provider-native ids isolated by provider', async () => {
+    const first = await upsertTrack({
+      provider: 'provider-a', providerId: 'shared-id', title: 'A Original', artist: 'Artist A', album: 'Album A',
+      artworkUrl: '', durationMs: 1000, previewUrl: null,
+    });
+    const second = await upsertTrack({
+      provider: 'provider-b', providerId: 'shared-id', title: 'B Original', artist: 'Artist B', album: 'Album B',
+      artworkUrl: '', durationMs: 2000, previewUrl: null,
+    });
+    const refreshedFirst = await upsertTrack({
+      provider: 'provider-a', providerId: 'shared-id', title: 'A Refreshed', artist: 'Artist A', album: 'Album A',
+      artworkUrl: '', durationMs: 3000, previewUrl: 'https://example.test/a.m4a',
+    });
+
+    expect(refreshedFirst.id).toBe(first.id);
+    expect(second.id).not.toBe(first.id);
+    expect((await findCachedByProviderId('provider-a', 'shared-id'))?.track).toMatchObject({
+      id: first.id,
+      title: 'A Refreshed',
+      previewUrl: 'https://example.test/a.m4a',
+    });
+    expect((await findCachedByProviderId('provider-b', 'shared-id'))?.track).toMatchObject({
+      id: second.id,
+      title: 'B Original',
+      previewUrl: null,
+    });
+  });
+});
+
 // ── Routing + fallback (#24) ───────────────────────────────────────────────────
 describe('RoutingMusicProvider', () => {
   const fakeTrack: Track = {
