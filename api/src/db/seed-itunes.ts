@@ -1,5 +1,5 @@
 // Owner: Livingston (dev seed real catalog art — iTunes, never product-critical)
-import { and, eq, inArray } from 'drizzle-orm';
+import { eq, inArray } from 'drizzle-orm';
 import { cfg } from '../config/index.js';
 import { fetchWithBackoff } from '../music/http.js';
 import { normalize, type ITunesResult } from '../music/itunes.js';
@@ -29,7 +29,6 @@ export interface SeedITunesTopTracksOptions {
 }
 
 function shouldSeedITunes(): boolean {
-  if ((process.env.NODE_ENV ?? 'development') === 'test') return false;
   const flag = (process.env.SEED_ITUNES ?? 'true').toLowerCase();
   return !['0', 'false', 'no', 'off'].includes(flag);
 }
@@ -95,13 +94,14 @@ async function repointStubQueueToItunes(queueItemIds: string[], seededTracks: Tr
 
   const stubIds = new Set(current.filter((row) => row.provider === 'stub').map((row) => row.id));
   let updated = 0;
+  // Demo queue pins to the first successful iTunes fetch; cached tracks are never refreshed away.
   for (const [index, queueItemId] of queueItemIds.entries()) {
     const track = seededTracks[index];
     if (!track || !stubIds.has(queueItemId)) continue;
     const rows = await db
       .update(queueItems)
       .set({ trackId: track.id })
-      .where(and(eq(queueItems.id, queueItemId), inArray(queueItems.id, [...stubIds])))
+      .where(eq(queueItems.id, queueItemId))
       .returning({ id: queueItems.id });
     updated += rows.length;
   }
@@ -110,7 +110,7 @@ async function repointStubQueueToItunes(queueItemIds: string[], seededTracks: Tr
 
 export async function seedITunesTopTracksForDev(opts: SeedITunesTopTracksOptions = {}): Promise<void> {
   if (!shouldSeedITunes()) {
-    console.log('[seed] iTunes top tracks skipped (NODE_ENV=test or SEED_ITUNES disabled)');
+    console.log('[seed] iTunes top tracks skipped (SEED_ITUNES disabled)');
     return;
   }
 

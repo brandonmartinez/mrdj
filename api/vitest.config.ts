@@ -5,6 +5,7 @@ export default defineConfig({
     globals:     false,
     environment: 'node',
     include:     ['src/__tests__/**/*.test.ts'],
+    globalSetup: './vitest.global-setup.ts',
     // Sequential — suites share one Postgres DB; parallel files would stomp each
     // other's reset/seed state. singleFork keeps one process; fileParallelism:false
     // guarantees files run one-at-a-time within it.

@@ -52,6 +52,8 @@ jobs:
         run: npm run db:migrate -w api
       - name: Seed baseline data
         run: npm run db:seed -w api
+        env:
+          SEED_ITUNES: "false"
       - name: Run API test suite
         run: npm run test -w api
       - name: Build api + web bundles
