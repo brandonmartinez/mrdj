@@ -53,8 +53,9 @@ This directory contains a complete Kubernetes deployment bundle for mrdj, design
 | `horizontalpodautoscaler.yml` | HPA scaling 2–3 replicas at 60% CPU |
 | `pdb.yml` | PodDisruptionBudget ensuring min 1 replica available during disruptions |
 | `kustomization.yml` | Kustomize orchestration (configMap + secret generators, labels) |
-| `.env.example` | Non-secret config placeholder (committed) |
-| `.env.secret.example` | Secret placeholders (committed, for documentation) |
+| `init-mrdj-db.sh` | Idempotent Postgres bootstrap (creates the `mrdj` role + database); promoted into the cluster's `postgres-init` ConfigMap (#45) |
+| `.env.example` | Non-secret config placeholder, configMap source (committed) |
+| `.env.secret.example` | Secret placeholders, secret source (committed, for documentation) |
 
 **Not committed (gitignored):**
 - `.env` — real non-secret config
@@ -91,11 +92,15 @@ cp .env.secret.example .env.secret.temp
 
 | Variable | Where | Notes |
 |----------|-------|-------|
-| `POSTGRES_USER` | `.env.secret.temp` | From cluster `data` namespace (default: `rpi`) |
-| `POSTGRES_PASSWORD` | `.env.secret.temp` | From cluster `data` secret |
+| `DATABASE_URL` | `.env.secret.temp` | Full DSN incl. cluster Postgres user + password (kustomize does not interpolate) |
+| `SESSION_SECRET` | `.env.secret.temp` | 64-char random string for express-session cookie signing |
 | `GOOGLE_CLIENT_ID` | `.env.secret.temp` | Google SSO credentials |
 | `GOOGLE_CLIENT_SECRET` | `.env.secret.temp` | Google SSO credentials |
-| `JWT_SECRET` | `.env.secret.temp` | Generate a secure random string |
+| `STRIPE_SECRET_KEY` / `STRIPE_PUBLISHABLE_KEY` / `STRIPE_WEBHOOK_SECRET` | `.env.secret.temp` | Stripe Connect (live for prod, test for staging) |
+
+Non-secret config (`NODE_ENV`, `PORT`, `WEB_BASE_URL`, `GOOGLE_REDIRECT_URI`, `MUSIC_PROVIDER`,
+`PLATFORM_FEE_PERCENT`, `PAYMENTS_CURRENCY`, Stripe Connect redirect URLs, `REFUND_WINDOW_MS`,
+`RATE_LIMIT_*`) lives in `.env`. All keys mirror exactly what `api/src/config/index.ts` reads.
 
 ### 3. Deploy to k3s
 
@@ -119,23 +124,19 @@ kubectl logs -n mrdj -l app=mrdj --tail=50
 
 ### 4. Database Setup
 
-The `mrdj` database must be created in the shared cluster PostgreSQL. Add an init script to the `data` namespace's `postgres-init` ConfigMap:
+The `mrdj` database must be created in the shared cluster PostgreSQL. The idempotent
+**`init-mrdj-db.sh`** (in this directory) creates the `mrdj` role and database if they don't
+exist; promote it into the `data` namespace's `postgres-init` ConfigMap:
 
 ```yaml
 # In the cluster's shared-database init ConfigMap (data namespace: postgres-init.yml)
 data:
-  init-mrdj-db.sh: |
-    #!/bin/bash
-    set -e
-
-    # Create mrdj database if it doesn't exist
-    psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL
-      CREATE DATABASE mrdj;
-    EOSQL
-
-    echo "mrdj database initialization complete"
+  init-mrdj-db.sh: |   # contents of k8s/init-mrdj-db.sh
+    ...
 ```
 
+It reads `POSTGRES_USER` / `POSTGRES_DB` from the Postgres init context and `MRDJ_DB_PASSWORD`
+(inject via secret). Safe to re-run: it guards both the role (CREATE/ALTER) and database creation.
 After updating the `data` resource, restart the PostgreSQL pod to run the init script.
 
 ## Mirrored Patterns (from the reference app)

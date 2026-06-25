@@ -8,7 +8,7 @@ metadata:
 spec:
   ingressClassName: traefik
   rules:
-    - host: mrdj.${NETWORK_HOSTNAME_SUFFIX}
+    - host: mrdj.themartinez.cloud
       http:
         paths:
           - pathType: Prefix
@@ -21,4 +21,4 @@ spec:
   tls:
     - secretName: mrdj-tls
       hosts:
-        - mrdj.${NETWORK_HOSTNAME_SUFFIX}
+        - mrdj.themartinez.cloud
