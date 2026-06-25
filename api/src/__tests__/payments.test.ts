@@ -147,6 +147,19 @@ async function seedPendingPurchase(intentId: string, overrides: Partial<{
   return rows[0].id as string;
 }
 
+async function seedPayment(intentId: string, agedDays = 0): Promise<string> {
+  const { rows } = await db.query(
+    `INSERT INTO platform_payments
+       (organization_id, user_id, bundle_id, stripe_payment_intent_id, stripe_charge_id,
+        amount_cents, application_fee_cents, currency, credits_granted, status,
+        stripe_connected_account_id, created_at)
+     VALUES ($1,$2,$3,$4,$5,500,50,'usd',5,'succeeded',$6, now() - ($7 || ' days')::interval)
+     RETURNING id`,
+    [orgA.id, BUYER, bundleA, intentId, `ch_${intentId}`, orgA.acct, String(agedDays)],
+  );
+  return rows[0].id as string;
+}
+
 // ── Provisioned tenants ───────────────────────────────────────────────────────
 const orgA = { id: uuid(), slug: `payA-${uuid().slice(0, 8)}`, acct: `acct_orgA_${uuid().slice(0, 6)}` };
 const orgB = { id: uuid(), slug: `payB-${uuid().slice(0, 8)}` };               // no Stripe account, charges disabled
@@ -431,17 +444,6 @@ describe('Stripe webhooks (#23/#34/#37)', () => {
 
 // ── #40 refunds ──────────────────────────────────────────────────────────────
 describe('Refunds (#40/O7)', () => {
-  async function seedPayment(intentId: string, agedDays = 0): Promise<string> {
-    const { rows } = await db.query(
-      `INSERT INTO platform_payments
-         (organization_id, user_id, bundle_id, stripe_payment_intent_id, stripe_charge_id, amount_cents, application_fee_cents, currency, credits_granted, status, created_at)
-       VALUES ($1,$2,$3,$4,$5,500,50,'usd',5,'succeeded', now() - ($6 || ' days')::interval)
-       RETURNING id`,
-      [orgA.id, BUYER, bundleA, intentId, `ch_${intentId}`, String(agedDays)],
-    );
-    return rows[0].id as string;
-  }
-
   it('issues a money refund within the window and reverses the application fee', async () => {
     const paymentId = await seedPayment(`pi_money_${uuid().slice(0, 8)}`);
     const before = fake._calls.refunds.length;
@@ -476,6 +478,23 @@ describe('Refunds (#40/O7)', () => {
     expect(r.body.fellBackToCredits).toBe(true);
     expect(fake._calls.refunds.length).toBe(before); // no Stripe money refund
     expect(await getBalance(BUYER, orgA.id)).toBe(balBefore + r.body.creditsReturned);
+    const { rows } = await db.query(`SELECT status, refund_method FROM platform_payments WHERE id = $1`, [paymentId]);
+    expect(rows[0]).toMatchObject({ status: 'refunded', refund_method: 'credits' });
+  });
+
+  it('blocks a money refund after a credit remedy', async () => {
+    const paymentId = await seedPayment(`pi_credit_then_money_${uuid().slice(0, 8)}`);
+    const credit = await apiCall<{ method: string }>('POST', `/orgs/${orgA.slug}/payments/${paymentId}/refund`, { method: 'credits' }, adminCookie);
+    expect(credit.status).toBe(200);
+    expect(credit.body.method).toBe('credits');
+
+    const before = fake._calls.refunds.length;
+    const money = await apiCall<{ error: { code: string; message: string } }>(
+      'POST', `/orgs/${orgA.slug}/payments/${paymentId}/refund`, { method: 'money' }, adminCookie,
+    );
+    expect(money.status).toBe(409);
+    expect(money.body.error.code).toBe('refund_already_remedied');
+    expect(fake._calls.refunds.length).toBe(before);
   });
 
   it('refuses to refund a payment from another org (404 tenant isolation)', async () => {
@@ -487,6 +506,14 @@ describe('Refunds (#40/O7)', () => {
 
 // ── #48 ledger ───────────────────────────────────────────────────────────────
 describe('PlatformPayment ledger (#48)', () => {
+  async function earningsSummary(): Promise<{ grossCents: number; feeCents: number; netCents: number; refundedCount: number }> {
+    const r = await apiCall<{ summary: { grossCents: number; feeCents: number; netCents: number; refundedCount: number } }>(
+      'GET', `/orgs/${orgA.slug}/payments`, undefined, adminCookie,
+    );
+    expect(r.status).toBe(200);
+    return r.body.summary;
+  }
+
   it('returns this org\'s payments + earnings summary, scoped to the tenant', async () => {
     const r = await apiCall<{ payments: { id: string }[]; summary: { netCents: number; grossCents: number; feeCents: number } }>(
       'GET', `/orgs/${orgA.slug}/payments`, undefined, adminCookie,
@@ -495,6 +522,19 @@ describe('PlatformPayment ledger (#48)', () => {
     expect(r.body.payments.length).toBeGreaterThan(0);
     // net = gross - fee for the succeeded rows.
     expect(r.body.summary.netCents).toBe(r.body.summary.grossCents - r.body.summary.feeCents);
+  });
+
+  it('excludes credit-refunded payments from earnings', async () => {
+    const before = await earningsSummary();
+    const paymentId = await seedPayment(`pi_exclude_${uuid().slice(0, 8)}`);
+    const refunded = await apiCall('POST', `/orgs/${orgA.slug}/payments/${paymentId}/refund`, { method: 'credits' }, adminCookie);
+    expect(refunded.status).toBe(200);
+
+    const after = await earningsSummary();
+    expect(after.grossCents).toBe(before.grossCents);
+    expect(after.feeCents).toBe(before.feeCents);
+    expect(after.netCents).toBe(before.netCents);
+    expect(after.refundedCount).toBeGreaterThan(before.refundedCount);
   });
 
   it('platform aggregate includes the org rollup', async () => {

@@ -22,6 +22,13 @@ export interface RefundOutcome {
   newBalance?:     number;
 }
 
+export class RefundRemedyConflictError extends Error {
+  constructor(existingMethod: 'money' | 'credits') {
+    super(`Payment already received a ${existingMethod} refund remedy`);
+    this.name = 'RefundRemedyConflictError';
+  }
+}
+
 /** Resolve the credit-grant transaction id for a payment (the `originalTxId`). */
 async function findGrantTxId(stripePaymentIntentId: string, ex: DbExecutor): Promise<string | null> {
   const [row] = await ex
@@ -53,9 +60,19 @@ export async function refundPayment(
     const refundKey    = `refund-${originalTxId}`;
     const withinWindow = Date.now() - pay.createdAt.getTime() <= cfg.refundWindowMs;
 
-    // Already money-refunded → idempotent no-op.
     if (pay.status === 'refunded') {
-      return { method: 'money', alreadyRefunded: true, fellBackToCredits: false, refundedCents: pay.amountCents };
+      const existingMethod = (pay.refundMethod ?? 'money') as 'money' | 'credits';
+      const requestedMethod = preferMoney && withinWindow ? 'money' : 'credits';
+      if (existingMethod !== requestedMethod) {
+        throw new RefundRemedyConflictError(existingMethod);
+      }
+      return {
+        method: existingMethod,
+        alreadyRefunded: true,
+        fellBackToCredits: preferMoney && !withinWindow && existingMethod === 'credits',
+        refundedCents: existingMethod === 'money' ? pay.amountCents : undefined,
+        creditsReturned: existingMethod === 'credits' ? pay.creditsGranted : undefined,
+      };
     }
 
     if (preferMoney && withinWindow) {
@@ -64,7 +81,9 @@ export async function refundPayment(
         { payment_intent: pay.stripePaymentIntentId, refund_application_fee: true },
         { idempotencyKey: refundKey },
       );
-      await tx.update(platformPayments).set({ status: 'refunded' }).where(eq(platformPayments.id, pay.id));
+      await tx.update(platformPayments)
+        .set({ status: 'refunded', refundMethod: 'money', refundedAt: new Date() })
+        .where(eq(platformPayments.id, pay.id));
       return { method: 'money', alreadyRefunded: false, fellBackToCredits: false, refundedCents: pay.amountCents };
     }
 
@@ -72,6 +91,9 @@ export async function refundPayment(
     const r = await refundCredits(
       pay.userId, organizationId, pay.creditsGranted, 'purchase_refund', refundKey, pay.id, undefined, tx,
     );
+    await tx.update(platformPayments)
+      .set({ status: 'refunded', refundMethod: 'credits', refundedAt: new Date() })
+      .where(eq(platformPayments.id, pay.id));
     return {
       method: 'credits',
       alreadyRefunded: r.alreadyRefunded,
@@ -94,7 +116,16 @@ export async function refundHandler(req: Request, res: Response) {
     sendError(res, 400, 'validation', "method must be 'money' or 'credits'");
     return;
   }
-  const outcome = await refundPayment(org.id, paymentId, method !== 'credits');
+  let outcome: RefundOutcome | null;
+  try {
+    outcome = await refundPayment(org.id, paymentId, method !== 'credits');
+  } catch (err) {
+    if (err instanceof RefundRemedyConflictError) {
+      sendError(res, 409, 'refund_already_remedied', err.message);
+      return;
+    }
+    throw err;
+  }
   if (!outcome) {
     sendError(res, 404, 'not_found', `Payment '${paymentId}' not found`);
     return;
