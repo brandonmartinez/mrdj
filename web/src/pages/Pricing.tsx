@@ -31,6 +31,11 @@ export default function Pricing() {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const totalCredits = draft.credits + draft.bonusCredits;
+  const creditError = totalCredits <= 0 ? 'Bundle must include at least one credit.' : null;
+  const priceError = draft.priceCents <= 0 ? 'Bundle price must be greater than zero.' : null;
+  const validationError = creditError ?? priceError;
+  const canSave = !busy && draft.label.trim().length > 0 && !validationError;
 
   async function load() {
     setBundles(await orgApi.listBundles(orgSlug).catch(() => []));
@@ -55,12 +60,8 @@ export default function Pricing() {
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
-    if (draft.credits + draft.bonusCredits <= 0) {
-      setError('Bundle must include at least one credit.');
-      return;
-    }
-    if (draft.priceCents <= 0) {
-      setError('Bundle price must be greater than zero.');
+    if (validationError) {
+      setError(validationError);
       return;
     }
     setBusy(true); setError(null);
@@ -158,16 +159,22 @@ export default function Pricing() {
                 <div className="space-y-2">
                   <Label htmlFor="b-credits">Credits</Label>
                   <Input id="b-credits" type="number" min={0} value={draft.credits}
+                    aria-invalid={Boolean(creditError)}
+                    aria-describedby={creditError ? 'b-credit-error' : undefined}
                     onChange={(e) => setDraft({ ...draft, credits: Number(e.target.value) })} />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="b-bonus">Bonus credits</Label>
                   <Input id="b-bonus" type="number" min={0} value={draft.bonusCredits}
+                    aria-invalid={Boolean(creditError)}
+                    aria-describedby={creditError ? 'b-credit-error' : undefined}
                     onChange={(e) => setDraft({ ...draft, bonusCredits: Number(e.target.value) })} />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="b-price">Price (cents)</Label>
                   <Input id="b-price" type="number" min={1} value={draft.priceCents}
+                    aria-invalid={Boolean(priceError)}
+                    aria-describedby={priceError ? 'b-price-error' : undefined}
                     onChange={(e) => setDraft({ ...draft, priceCents: Number(e.target.value) })} />
                 </div>
                 <div className="space-y-2">
@@ -176,6 +183,8 @@ export default function Pricing() {
                     onChange={(e) => setDraft({ ...draft, sortOrder: Number(e.target.value) })} />
                 </div>
               </div>
+              {creditError && <p id="b-credit-error" className="text-sm text-destructive">{creditError}</p>}
+              {priceError && <p id="b-price-error" className="text-sm text-destructive">{priceError}</p>}
               <label className="flex items-center gap-2 text-sm">
                 <input type="checkbox" checked={draft.active}
                   onChange={(e) => setDraft({ ...draft, active: e.target.checked })} />
@@ -184,7 +193,7 @@ export default function Pricing() {
               {error && <p className="text-sm text-destructive">{error}</p>}
             </div>
             <DialogFooter>
-              <Button type="submit" disabled={busy || !draft.label.trim()}>
+              <Button type="submit" disabled={!canSave}>
                 {busy ? 'Saving…' : 'Save bundle'}
               </Button>
             </DialogFooter>
