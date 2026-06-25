@@ -296,9 +296,9 @@ export const orgApi = {
   getOrg: (orgSlug: string) =>
     apiFetch<{ organization: { id: string; slug: string; name: string } }>(`/api/orgs/${orgSlug}`),
 
-  updateOrg: (orgSlug: string, name: string) =>
-    apiFetch<{ organization: { id: string; slug: string; name: string } }>(`/api/orgs/${orgSlug}`, {
-      method: 'PATCH', body: JSON.stringify({ name }),
+  updateOrg: (orgSlug: string, body: { name?: string; logoUrl?: string | null; accentColor?: string | null }) =>
+    apiFetch<{ organization: { id: string; slug: string; name: string; logoUrl: string | null; accentColor: string | null } }>(`/api/orgs/${orgSlug}`, {
+      method: 'PATCH', body: JSON.stringify(body),
     }),
 
   // Events
@@ -384,4 +384,29 @@ export const orgApi = {
     apiFetch<{ ok: boolean }>(`/api/orgs/${orgSlug}/payments/${paymentId}/refund`, {
       method: 'POST', body: JSON.stringify({ method }),
     }),
+
+  // Public guest landing (no auth) — branding + joinable events + active bundles.
+  publicOrg: (orgSlug: string) =>
+    apiFetch<PublicOrg>(`/api/orgs/${orgSlug}/public`),
+
+  // Real Connect checkout — creates a PaymentIntent on the org's connected account.
+  purchase: (orgSlug: string, bundleId: string, clientRequestId?: string) =>
+    apiFetch<PurchaseIntent>(`/api/orgs/${orgSlug}/credits/purchase`, {
+      method: 'POST', body: JSON.stringify({ bundleId, clientRequestId }),
+    }),
 };
+
+export interface PublicOrg {
+  organization: { slug: string; name: string; logoUrl: string | null; accentColor: string | null };
+  events: { id: string; slug: string; name: string; status: 'draft' | 'live' | 'ended'; createdAt: string }[];
+  bundles: Bundle[];
+}
+
+export interface PurchaseIntent {
+  clientSecret:        string;
+  paymentIntentId:     string;
+  publishableKey:      string;
+  amountCents:         number;
+  applicationFeeCents: number;
+  credits:             number;
+}

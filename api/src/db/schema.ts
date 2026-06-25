@@ -51,6 +51,11 @@ export const organizations = pgTable('organizations', {
   stripeAccountId: text('stripe_account_id'),
   chargesEnabled: boolean('charges_enabled').notNull().default(false),
   payoutsEnabled: boolean('payouts_enabled').notNull().default(false),
+  // Guest-facing branding (Epic 7, #75). logoUrl renders in the jukebox header;
+  // accentColor (a hex string like '#7c3aed') tints primary UI. Both optional —
+  // the guest UI falls back to a neutral default theme when null.
+  logoUrl: text('logo_url'),
+  accentColor: text('accent_color'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
 

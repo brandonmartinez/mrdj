@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { api, ApiRequestError } from '../api';
-import type { Track, QueueView, Bundle } from '../api';
+import { api, orgApi, ApiRequestError } from '../api';
+import type { Track, QueueView, Bundle, PurchaseIntent } from '../api';
+import { StripeCheckout } from './StripeCheckout';
 
 export interface PendingAction {
   track: Track;
@@ -14,11 +15,12 @@ interface ConfirmModalProps {
   creditBalance: number;
   bundles: Bundle[];
   eventSlug: string;
+  orgSlug: string;
   onSuccess: (update: { queueView: QueueView; creditBalance: number }) => void;
   onCancel: () => void;
 }
 
-type Phase = 'confirm' | 'insufficient' | 'bundles' | 'purchasing' | 'processing' | 'success' | 'error';
+type Phase = 'confirm' | 'insufficient' | 'bundles' | 'purchasing' | 'payment' | 'processing' | 'success' | 'error';
 
 function fmtCents(cents: number) {
   return `$${(cents / 100).toFixed(2)}`;
@@ -34,6 +36,7 @@ export function ConfirmModal({
   creditBalance: initialBalance,
   bundles,
   eventSlug,
+  orgSlug,
   onSuccess,
   onCancel,
 }: ConfirmModalProps) {
@@ -50,6 +53,7 @@ export function ConfirmModal({
   const [currentBalance, setCurrentBalance] = useState(initialBalance);
   const [errorMsg, setErrorMsg] = useState('');
   const [selectedBundle, setSelectedBundle] = useState<Bundle | null>(null);
+  const [intent, setIntent] = useState<PurchaseIntent | null>(null);
   const firstFocusRef = useRef<HTMLButtonElement>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
 
@@ -105,22 +109,62 @@ export function ConfirmModal({
   const handlePurchase = useCallback(async () => {
     if (!selectedBundle) return;
     setPhase('purchasing');
-    // Per-attempt idempotency key: a fresh nonce each Purchase click so that buying
-    // the same bundle more than once within a single modal session is a distinct,
-    // real purchase (not a replayed no-op). The key is computed once here and reused
-    // for the awaited checkoutComplete, so it still dedupes a single click's retries.
-    const checkoutKey = `checkout-${selectedBundle.id}-${crypto.randomUUID()}`;
+    const clientRequestId = crypto.randomUUID();
     try {
-      const session = await api.checkoutSession(selectedBundle.id);
-      const result = await api.checkoutComplete(session.sessionId, checkoutKey);
-      setCurrentBalance(result.creditBalance);
-      setSelectedBundle(null);
-      setPhase(result.creditBalance >= cost ? 'confirm' : 'insufficient');
+      // Preferred path (#86): real Connect destination charge via Stripe Payment Element.
+      const purchaseIntent = await orgApi.purchase(orgSlug, selectedBundle.id, clientRequestId);
+      setIntent(purchaseIntent);
+      setPhase('payment');
     } catch (err) {
+      // Dev/keyless fallback: when the org hasn't completed Stripe onboarding the
+      // purchase endpoint returns 402 payments_unavailable — use the stub so local
+      // demos still work end-to-end. Any other error surfaces normally.
+      if (err instanceof ApiRequestError && err.code === 'payments_unavailable') {
+        const checkoutKey = `checkout-${selectedBundle.id}-${clientRequestId}`;
+        try {
+          const session = await api.checkoutSession(selectedBundle.id);
+          const result = await api.checkoutComplete(session.sessionId, checkoutKey);
+          setCurrentBalance(result.creditBalance);
+          setSelectedBundle(null);
+          setPhase(result.creditBalance >= cost ? 'confirm' : 'insufficient');
+        } catch (stubErr) {
+          setErrorMsg(stubErr instanceof Error ? stubErr.message : 'Checkout failed. Try again.');
+          setPhase('error');
+        }
+        return;
+      }
       setErrorMsg(err instanceof Error ? err.message : 'Checkout failed. Try again.');
       setPhase('error');
     }
-  }, [selectedBundle, cost]);
+  }, [selectedBundle, cost, orgSlug]);
+
+  // After a successful card confirmation, credits are granted asynchronously by the
+  // Stripe webhook. Poll the org-scoped queue balance until it reflects the grant.
+  const handlePaid = useCallback(async () => {
+    setPhase('processing');
+    const before = currentBalance;
+    for (let i = 0; i < 12; i++) {
+      try {
+        const view = await api.queue(eventSlug);
+        if (view.creditBalance > before) {
+          setCurrentBalance(view.creditBalance);
+          setSelectedBundle(null);
+          setIntent(null);
+          setPhase(view.creditBalance >= cost ? 'confirm' : 'insufficient');
+          return;
+        }
+      } catch {
+        // transient — keep polling
+      }
+      await new Promise((r) => setTimeout(r, 1000));
+    }
+    // Grant hasn't landed yet (webhook delay). Optimistically credit the purchased amount.
+    const granted = before + (intent?.credits ?? 0);
+    setCurrentBalance(granted);
+    setSelectedBundle(null);
+    setIntent(null);
+    setPhase(granted >= cost ? 'confirm' : 'insufficient');
+  }, [currentBalance, eventSlug, cost, intent]);
 
   const resultingBalance = currentBalance - cost;
 
@@ -313,8 +357,36 @@ export function ConfirmModal({
               </button>
 
               <p className="text-center text-zinc-600 text-xs">
-                Dev stub — no real payment is processed
+                Secure checkout — card details are processed by Stripe
               </p>
+            </div>
+          </>
+        )}
+
+        {/* ── PAYMENT (Stripe Payment Element, #86) ───────── */}
+        {phase === 'payment' && intent && selectedBundle && (
+          <>
+            <div className="p-5 border-b border-zinc-800 flex items-center justify-between">
+              <div>
+                <p id="modal-title" className="text-white font-bold text-lg">Checkout</p>
+                <p className="text-zinc-500 text-xs mt-0.5">
+                  {selectedBundle.label} — {selectedBundle.credits + selectedBundle.bonusCredits} credits
+                </p>
+              </div>
+              <button onClick={() => { setIntent(null); setPhase('bundles'); }} className="text-zinc-500 hover:text-zinc-300 transition-colors" aria-label="Back">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="m15 18-6-6 6-6" />
+                </svg>
+              </button>
+            </div>
+            <div className="p-5">
+              <StripeCheckout
+                clientSecret={intent.clientSecret}
+                publishableKey={intent.publishableKey}
+                amountLabel={fmtCents(intent.amountCents)}
+                onPaid={() => void handlePaid()}
+                onCancel={() => { setIntent(null); setPhase('bundles'); }}
+              />
             </div>
           </>
         )}

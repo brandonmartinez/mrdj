@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams } from 'react-router-dom';
-import { api } from '../api.ts';
-import type { MeResponse, QueueView, Track, Bundle } from '../api.ts';
+import type { MeResponse, QueueView, Track, Bundle, PublicOrg } from '../api.ts';
+import { api, orgApi } from '../api.ts';
 import { useQueueStream } from '../hooks/useQueueStream.ts';
 import { useDebounced } from '../hooks/useDebounced.ts';
 import { Header } from '../components/Header.tsx';
@@ -20,8 +20,10 @@ export default function GuestJukebox() {
   // so the legacy single-event flow keeps working during the Epic 7 transition.
   const params = useParams<{ orgSlug?: string; eventSlug?: string }>();
   const eventSlug = params.eventSlug ?? 'demo';
+  const orgSlug = params.orgSlug ?? 'demo';
 
   const [me, setMe] = useState<MeResponse | null>(null);
+  const [org, setOrg] = useState<PublicOrg['organization'] | null>(null);
   const [queueView, setQueueView] = useState<QueueView | null>(null);
   const [creditBalance, setCreditBalance] = useState(0);
   const [bundles, setBundles] = useState<Bundle[]>([]);
@@ -61,13 +63,21 @@ export default function GuestJukebox() {
         if (meData.user.role === 'guest') {
           guestUserIdRef.current = meData.user.id;
         }
+        // Org branding + org-scoped bundles (non-fatal if unavailable).
+        try {
+          const pub = await orgApi.publicOrg(orgSlug);
+          setOrg(pub.organization);
+          if (pub.bundles.length > 0) setBundles(pub.bundles);
+        } catch {
+          /* public org endpoint unavailable — fall back to defaults */
+        }
       } catch (e) {
         setApiError(e instanceof Error ? e.message : 'Unknown error');
         setLoading(false);
       }
     }
     void init();
-  }, []);
+  }, [orgSlug]);
 
   // ── Queue realtime (SSE + fallback poll) ─────────────────────────────────────
   const handleQueueUpdate = useCallback((view: QueueView) => {
@@ -182,6 +192,9 @@ export default function GuestJukebox() {
         onRoleSwitch={handleRoleSwitch}
         view={view}
         onToggleView={() => setView((v) => (v === 'console' ? 'guest' : 'console'))}
+        orgName={org?.name}
+        logoUrl={org?.logoUrl}
+        accentColor={org?.accentColor}
       />
 
       {/* ── DJ Console (admin-only view) ──────────────────────────── */}
@@ -322,6 +335,7 @@ export default function GuestJukebox() {
           creditBalance={creditBalance}
           bundles={bundles}
           eventSlug={eventSlug}
+          orgSlug={orgSlug}
           onSuccess={handleModalSuccess}
           onCancel={() => setPendingAction(null)}
         />

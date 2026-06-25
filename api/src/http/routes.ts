@@ -29,7 +29,7 @@ import {
   sendError, asyncHandler,
 } from './middleware.js';
 import {
-  createOrgHandler, getOrgHandler, updateOrgHandler, listPlatformOrgsHandler,
+  createOrgHandler, getOrgHandler, getPublicOrgHandler, updateOrgHandler, listPlatformOrgsHandler,
   listMembersHandler, addMemberHandler, updateMemberHandler, removeMemberHandler,
 } from '../org/handlers.js';
 import { listMyOrgsHandler, createMyOrgHandler } from '../org/self.js';
@@ -120,6 +120,10 @@ export function registerRoutes(app: Express) {
   // The current SSO account lists/creates its own organizations (becomes owner).
   app.get('/api/me/orgs',  asyncHandler(listMyOrgsHandler));
   app.post('/api/me/orgs', asyncHandler(createMyOrgHandler));
+
+  // ── Public org landing (Epic 7, #65/#75/#86) — no auth: branding + joinable events + bundles.
+  app.get('/api/orgs/:orgSlug/public',
+    asyncHandler(resolveOrg()), asyncHandler(getPublicOrgHandler));
 
   app.get('/api/orgs/:orgSlug',
     asyncHandler(resolveOrg()), asyncHandler(requireMembership('staff')), asyncHandler(getOrgHandler));

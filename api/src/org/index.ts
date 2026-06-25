@@ -17,6 +17,8 @@ export interface OrganizationRow {
   id:   string;
   slug: string;
   name: string;
+  logoUrl:     string | null;
+  accentColor: string | null;
 }
 
 /**
@@ -38,7 +40,10 @@ export async function getDefaultOrgId(executor: DbExecutor = db): Promise<string
 /** Resolve an Organization by its slug (for /o/{slug} routing). */
 export async function getOrgBySlug(slug: string, executor: DbExecutor = db): Promise<OrganizationRow | null> {
   const [row] = await executor
-    .select({ id: organizations.id, slug: organizations.slug, name: organizations.name })
+    .select({
+      id: organizations.id, slug: organizations.slug, name: organizations.name,
+      logoUrl: organizations.logoUrl, accentColor: organizations.accentColor,
+    })
     .from(organizations)
     .where(eq(organizations.slug, slug))
     .limit(1);
@@ -48,7 +53,10 @@ export async function getOrgBySlug(slug: string, executor: DbExecutor = db): Pro
 /** Resolve an Organization by id. */
 export async function getOrgById(id: string, executor: DbExecutor = db): Promise<OrganizationRow | null> {
   const [row] = await executor
-    .select({ id: organizations.id, slug: organizations.slug, name: organizations.name })
+    .select({
+      id: organizations.id, slug: organizations.slug, name: organizations.name,
+      logoUrl: organizations.logoUrl, accentColor: organizations.accentColor,
+    })
     .from(organizations)
     .where(eq(organizations.id, id))
     .limit(1);

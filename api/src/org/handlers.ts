@@ -7,9 +7,10 @@ import {
 import { ORG_ROLES, type OrgRole } from './index.js';
 import { sendError } from '../http/middleware.js';
 import { pgErrorCode } from '../db/index.js';
-import { seedOrgPricingDefaults } from '../payments/pricing.js';
+import { seedOrgPricingDefaults, listBundlesForOrg } from '../payments/pricing.js';
 
 const SLUG_RE = /^[a-z0-9](?:[a-z0-9-]{0,38}[a-z0-9])?$/;
+const HEX_RE = /^#[0-9a-fA-F]{6}$/;
 
 function isOrgRole(v: unknown): v is OrgRole {
   return typeof v === 'string' && (ORG_ROLES as readonly string[]).includes(v);
@@ -68,19 +69,75 @@ export function getOrgHandler(req: Request, res: Response) {
   res.json({ organization: req.orgContext });
 }
 
-/** PATCH /api/orgs/:orgSlug — manager+ renames the org. */
+/**
+ * GET /api/orgs/:orgSlug/public — unauthenticated guest landing payload (Epic 7, #65/#75/#86).
+ * Returns org branding, the events a guest can join, and the org's active credit bundles.
+ * No membership required — this is the public face of the tenant.
+ */
+export async function getPublicOrgHandler(req: Request, res: Response) {
+  const org = req.orgContext!;
+  const scope = forOrg(org.id);
+
+  const eventRows = await db
+    .select({
+      id: events.id, slug: events.slug, name: events.name, status: events.status,
+      createdAt: events.createdAt,
+    })
+    .from(events)
+    .where(scope.owns(events))
+    .orderBy(sql`CASE ${events.status} WHEN 'live' THEN 0 WHEN 'draft' THEN 1 ELSE 2 END`, events.createdAt);
+
+  const bundleRows = await listBundlesForOrg(org.id, true);
+
+  res.json({
+    organization: {
+      slug: org.slug, name: org.name, logoUrl: org.logoUrl, accentColor: org.accentColor,
+    },
+    events: eventRows,
+    bundles: bundleRows.map((b) => ({
+      id: b.id, label: b.label, credits: b.credits, bonusCredits: b.bonusCredits,
+      priceCents: b.priceCents, discountPct: b.discountPct,
+    })),
+  });
+}
+
+/** PATCH /api/orgs/:orgSlug — manager+ updates org name and guest-facing branding. */
 export async function updateOrgHandler(req: Request, res: Response) {
   const org = req.orgContext!;
-  const { name } = req.body as { name?: string };
-  if (!name || !name.trim()) {
-    sendError(res, 400, 'validation', 'name is required');
+  const { name, logoUrl, accentColor } = req.body as {
+    name?: string; logoUrl?: string | null; accentColor?: string | null;
+  };
+
+  const patch: Partial<{ name: string; logoUrl: string | null; accentColor: string | null }> = {};
+
+  if (name !== undefined) {
+    if (!name.trim()) { sendError(res, 400, 'validation', 'name must be non-empty'); return; }
+    patch.name = name.trim();
+  }
+  if (logoUrl !== undefined) {
+    patch.logoUrl = logoUrl && logoUrl.trim() ? logoUrl.trim() : null;
+  }
+  if (accentColor !== undefined) {
+    if (accentColor && !HEX_RE.test(accentColor)) {
+      sendError(res, 400, 'validation', "accentColor must be a 6-digit hex string like '#7c3aed'");
+      return;
+    }
+    patch.accentColor = accentColor && accentColor.trim() ? accentColor : null;
+  }
+
+  if (Object.keys(patch).length === 0) {
+    sendError(res, 400, 'validation', 'no updatable fields provided');
     return;
   }
+
   const [updated] = await db
     .update(organizations)
-    .set({ name: name.trim() })
+    .set(patch)
     .where(eq(organizations.id, org.id))
-    .returning({ id: organizations.id, slug: organizations.slug, name: organizations.name });
+    .returning({
+      id: organizations.id, slug: organizations.slug, name: organizations.name,
+      logoUrl: organizations.logoUrl, accentColor: organizations.accentColor,
+    });
   res.json({ organization: updated });
 }
 

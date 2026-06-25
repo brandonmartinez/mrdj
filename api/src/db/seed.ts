@@ -96,6 +96,7 @@ async function seed() {
         id:   IDS.defaultOrg,
         slug: 'demo',
         name: "Mr. DJ Demo Organization",
+        accentColor: '#7c3aed',
       }).onConflictDoNothing({ target: organizations.id });
 
       // Admin account (role = admin)

@@ -1,8 +1,9 @@
-import { Routes, Route, Navigate, useParams } from 'react-router-dom';
+import { Routes, Route, Navigate } from 'react-router-dom';
 import type { ReactNode } from 'react';
 import { useSession } from './context/session';
 import { OrgShell } from './components/OrgShell';
 import GuestJukebox from './pages/GuestJukebox';
+import OrgLanding from './pages/OrgLanding';
 import Login from './pages/Login';
 import Onboarding from './pages/Onboarding';
 import OrgDashboard from './pages/OrgDashboard';
@@ -56,15 +57,15 @@ export default function App() {
       <Route path="/login" element={<Login />} />
       <Route path="/onboarding" element={<RequireAuth><Onboarding /></RequireAuth>} />
 
-      {/* Public guest jukebox — lives outside the management shell. */}
+      {/* Public guest jukebox + org landing — live outside the management shell. */}
       <Route path="/o/:orgSlug/events/:eventSlug" element={<GuestJukebox />} />
+      <Route path="/o/:orgSlug" element={<OrgLanding />} />
 
       {/* Org management shell. */}
       <Route
         path="/o/:orgSlug"
         element={<RequireAuth><OrgShell /></RequireAuth>}
       >
-        <Route index element={<OrgIndexRedirect />} />
         <Route path="dashboard" element={<OrgDashboard />} />
         <Route path="events" element={<EventsList />} />
         <Route path="events/:eventSlug/manage" element={<EventManage />} />
@@ -77,9 +78,4 @@ export default function App() {
       <Route path="*" element={<NotFound />} />
     </Routes>
   );
-}
-
-function OrgIndexRedirect() {
-  const { orgSlug } = useParams();
-  return <Navigate to={`/o/${orgSlug}/dashboard`} replace />;
 }

@@ -8,9 +8,12 @@ interface HeaderProps {
   onRoleSwitch: (role: 'guest' | 'admin') => Promise<void>;
   view?: 'guest' | 'console';
   onToggleView?: () => void;
+  orgName?: string;
+  logoUrl?: string | null;
+  accentColor?: string | null;
 }
 
-export function Header({ eventName, displayName, role, creditBalance, onRoleSwitch, view, onToggleView }: HeaderProps) {
+export function Header({ eventName, displayName, role, creditBalance, onRoleSwitch, view, onToggleView, orgName, logoUrl, accentColor }: HeaderProps) {
   const headerRef = useRef<HTMLElement>(null);
 
   // Expose header height as --header-h CSS variable for scroll math
@@ -35,9 +38,15 @@ export function Header({ eventName, displayName, role, creditBalance, onRoleSwit
       <div className="max-w-3xl mx-auto px-4 h-16 flex items-center justify-between gap-4">
         {/* Logo */}
         <div className="flex items-center gap-2 min-w-0">
-          <span className="text-2xl" aria-hidden>🎵</span>
+          {logoUrl ? (
+            <img src={logoUrl} alt={orgName ?? 'logo'} className="h-8 w-8 rounded-md object-cover flex-shrink-0" />
+          ) : (
+            <span className="text-2xl" aria-hidden>🎵</span>
+          )}
           <div className="min-w-0">
-            <h1 className="text-lg font-black tracking-tight text-white leading-none">mrdj</h1>
+            <h1 className="text-lg font-black tracking-tight text-white leading-none" style={accentColor ? { color: accentColor } : undefined}>
+              {orgName ?? 'mrdj'}
+            </h1>
             <p className="text-xs text-zinc-500 truncate hidden sm:block">{eventName}</p>
           </div>
         </div>
@@ -62,7 +71,7 @@ export function Header({ eventName, displayName, role, creditBalance, onRoleSwit
           {/* Credit balance */}
           <div className="text-right">
             <p className="text-xs text-zinc-500 leading-none">credits</p>
-            <p className="text-xl font-black text-violet-400 leading-none tabular-nums">
+            <p className="text-xl font-black text-violet-400 leading-none tabular-nums" style={accentColor ? { color: accentColor } : undefined}>
               {creditBalance}
             </p>
           </div>
