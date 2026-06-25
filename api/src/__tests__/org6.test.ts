@@ -20,6 +20,8 @@ const TEST_PORT = 3993;
 const BASE      = `http://localhost:${TEST_PORT}/api`;
 const DB_URL    = process.env.DATABASE_URL ?? 'postgresql://mrdj:mrdj@localhost:5432/mrdj';
 const db        = new Pool({ connectionString: DB_URL, max: 5 });
+const GUEST_USER = '00000000-0000-0000-0000-000000000003';
+const TRACK_CL = '00000000-0000-0000-0000-000000000101';
 
 interface ApiResponse<T = unknown> { status: number; body: T; setCookie: string | null; }
 
@@ -114,6 +116,7 @@ describe('Self-serve organizations (#32/#35)', () => {
 
 describe('Event CRUD (#41/#44)', () => {
   const eventSlug = `e6-evt-${uuid().slice(0, 8)}`;
+  let defaultAreaId = '';
 
   it('manager+ creates an event with a mandatory default area', async () => {
     const r = await apiCall<{ event: { slug: string; status: string; defaultAreaId: string; defaultAreaName: string } }>(
@@ -123,6 +126,7 @@ describe('Event CRUD (#41/#44)', () => {
     expect(r.body.event.slug).toBe(eventSlug);
     expect(r.body.event.status).toBe('draft');
     expect(r.body.event.defaultAreaId).toBeTruthy();
+    defaultAreaId = r.body.event.defaultAreaId;
     expect(r.body.event.defaultAreaName).toBe('Main Floor');
     createdEventSlugs.push(eventSlug);
 
@@ -132,6 +136,23 @@ describe('Event CRUD (#41/#44)', () => {
     );
     expect(areas.status).toBe(200);
     expect(areas.body.areas.some((a) => a.isDefault)).toBe(true);
+
+    const slot = await db.query(`SELECT status FROM play_next_slot WHERE area_id = $1`, [defaultAreaId]);
+    expect(slot.rows[0].status).toBe('available');
+
+    await db.query(
+      `INSERT INTO wallets (user_id, organization_id, balance)
+       VALUES ($1, $2, 10)
+       ON CONFLICT (user_id, organization_id) DO UPDATE SET balance = 10`,
+      [GUEST_USER, createdOrgIds[0]],
+    );
+    const pn = await apiCall(
+      'POST',
+      `/events/${eventSlug}/requests`,
+      { trackId: TRACK_CL, tier: 'play_next', idempotencyKey: uuid(), areaId: defaultAreaId },
+      guestCookie,
+    );
+    expect(pn.status).toBe(201);
   });
 
   it('lists the org events including the new one', async () => {

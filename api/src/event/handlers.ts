@@ -8,7 +8,7 @@
 import type { Request, Response } from 'express';
 import { and, asc, eq, sql } from 'drizzle-orm';
 import {
-  db, forOrg, events, areas, memberships, accounts, pgErrorCode,
+  db, forOrg, events, areas, playNextSlot, memberships, accounts, pgErrorCode,
 } from '../db/index.js';
 import { sendError } from '../http/middleware.js';
 
@@ -137,6 +137,9 @@ export async function createEventHandler(req: Request, res: Response) {
           isDefault:      true,
         })
         .returning({ id: areas.id, name: areas.name });
+
+      await tx.insert(playNextSlot)
+        .values({ eventId: created.id, areaId: area.id, status: 'available' });
 
       return { ...created, defaultAreaId: area.id, defaultAreaName: area.name };
     });
