@@ -30,7 +30,13 @@ import { createApp } from '../http/server.js';
 import { cfg } from '../config/index.js';
 import { setStripe } from '../payments/client.js';
 import { applicationFeeCents } from '../payments/purchase.js';
-import { grantCredits, getBalance } from '../credits/service.js';
+import {
+  assertWalletLedgerReconciled,
+  getWalletLedgerReconciliation,
+  grantCredits,
+  getBalance,
+  WalletLedgerDriftError,
+} from '../credits/service.js';
 
 const TEST_PORT = 3994;
 const BASE   = `http://localhost:${TEST_PORT}/api`;
@@ -619,5 +625,38 @@ describe('Cross-org credit spend rejection (#55)', () => {
     // Balance never went negative (CHECK constraint would have errored the row otherwise).
     const { rows } = await db.query(`SELECT balance FROM wallets WHERE user_id = $1 AND organization_id = $2`, [ADMIN_USER, orgB.id]);
     expect(rows[0].balance).toBe(0);
+    await expect(assertWalletLedgerReconciled(ADMIN_USER, orgB.id)).resolves.toMatchObject({
+      walletBalance: 0,
+      ledgerBalance: 0,
+      reconciled: true,
+    });
+  });
+});
+
+// ── Wallet/ledger reconciliation ─────────────────────────────────────────────
+describe('Wallet ledger reconciliation', () => {
+  it('detects mutable wallet drift from the append-only ledger', async () => {
+    const u = uuid();
+    await db.query(`INSERT INTO users (id, type) VALUES ($1,'guest')`, [u]);
+    try {
+      await grantCredits(u, orgA.id, 4, 'grant', `reconcile-${u}`);
+      expect(await getWalletLedgerReconciliation(u, orgA.id)).toEqual({
+        walletBalance: 4,
+        ledgerBalance: 4,
+        reconciled: true,
+      });
+
+      await db.query(`UPDATE wallets SET balance = balance + 1 WHERE user_id = $1 AND organization_id = $2`, [u, orgA.id]);
+      expect(await getWalletLedgerReconciliation(u, orgA.id)).toEqual({
+        walletBalance: 5,
+        ledgerBalance: 4,
+        reconciled: false,
+      });
+      await expect(assertWalletLedgerReconciled(u, orgA.id)).rejects.toBeInstanceOf(WalletLedgerDriftError);
+    } finally {
+      await db.query(`DELETE FROM credit_transactions WHERE user_id = $1`, [u]);
+      await db.query(`DELETE FROM wallets WHERE user_id = $1`, [u]);
+      await db.query(`DELETE FROM users WHERE id = $1`, [u]);
+    }
   });
 });

@@ -1,7 +1,7 @@
 // Owner: Basher (auth service — Epic 3, #81/#87/#89)
 import { and, eq, sql } from 'drizzle-orm';
 import {
-  db, users, accounts, organizations, memberships, wallets,
+  db, users, accounts, organizations, memberships, wallets, creditTransactions,
   type DbExecutor,
 } from '../db/index.js';
 import { grantCredits } from '../credits/service.js';
@@ -128,6 +128,22 @@ export async function loginWithProfile(
       for (const gw of guestWallets) {
         if (gw.balance <= 0) continue;
         // Zero the guest wallet for this org, then grant to the account (idempotent per org).
+        await tx.insert(creditTransactions).values({
+          userId:             opts.guestUserId,
+          organizationId:     gw.organizationId,
+          operationNamespace: 'spend:merge',
+          type:               'spend',
+          amount:             gw.balance,
+          reason:             'merge',
+          idempotencyKey:     `merge-out:${opts.guestUserId}->${userId}:${gw.organizationId}`,
+        }).onConflictDoNothing({
+          target: [
+            creditTransactions.userId,
+            creditTransactions.organizationId,
+            creditTransactions.operationNamespace,
+            creditTransactions.idempotencyKey,
+          ],
+        });
         await tx
           .update(wallets)
           .set({ balance: 0, updatedAt: sql`now()` })

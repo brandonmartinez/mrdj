@@ -17,6 +17,53 @@ export class CreditIdempotencyConflictError extends Error {
   }
 }
 
+export interface WalletLedgerReconciliation {
+  walletBalance: number;
+  ledgerBalance: number;
+  reconciled: boolean;
+}
+
+export class WalletLedgerDriftError extends Error {
+  constructor(userId: string, organizationId: string, walletBalance: number, ledgerBalance: number) {
+    super(`Wallet ledger drift for user ${userId} in org ${organizationId}: wallet=${walletBalance}, ledger=${ledgerBalance}`);
+    this.name = 'WalletLedgerDriftError';
+  }
+}
+
+/** Compare mutable wallet balance to the append-only credit ledger for one org wallet. */
+export async function getWalletLedgerReconciliation(
+  userId: string,
+  organizationId: string,
+  executor: DbExecutor = db,
+): Promise<WalletLedgerReconciliation> {
+  const [walletRow] = await executor
+    .select({ balance: wallets.balance })
+    .from(wallets)
+    .where(and(eq(wallets.userId, userId), eq(wallets.organizationId, organizationId)));
+  const [ledgerRow] = await executor
+    .select({
+      balance: sql<number>`COALESCE(SUM(CASE WHEN ${creditTransactions.type} = 'spend' THEN -${creditTransactions.amount} ELSE ${creditTransactions.amount} END), 0)::int`,
+    })
+    .from(creditTransactions)
+    .where(and(eq(creditTransactions.userId, userId), eq(creditTransactions.organizationId, organizationId)));
+  const walletBalance = walletRow?.balance ?? 0;
+  const ledgerBalance = ledgerRow?.balance ?? 0;
+  return { walletBalance, ledgerBalance, reconciled: walletBalance === ledgerBalance };
+}
+
+/** Throw if a wallet has drifted from its append-only ledger. */
+export async function assertWalletLedgerReconciled(
+  userId: string,
+  organizationId: string,
+  executor: DbExecutor = db,
+): Promise<WalletLedgerReconciliation> {
+  const result = await getWalletLedgerReconciliation(userId, organizationId, executor);
+  if (!result.reconciled) {
+    throw new WalletLedgerDriftError(userId, organizationId, result.walletBalance, result.ledgerBalance);
+  }
+  return result;
+}
+
 /**
  * Grant credits to a user (e.g. after successful purchase).
  * Idempotent: same idempotencyKey always returns same result without re-applying.
