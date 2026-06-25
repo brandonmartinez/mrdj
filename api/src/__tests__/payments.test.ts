@@ -504,6 +504,22 @@ describe('Refunds (#40/O7)', () => {
     expect(fake._calls.refunds.length).toBe(before);
   });
 
+
+  it('blocks a credit remedy after a money refund', async () => {
+    const paymentId = await seedPayment(`pi_money_then_credit_${uuid().slice(0, 8)}`);
+    const before = fake._calls.refunds.length;
+    const money = await apiCall<{ method: string }>('POST', `/orgs/${orgA.slug}/payments/${paymentId}/refund`, { method: 'money' }, adminCookie);
+    expect(money.status).toBe(200);
+    expect(money.body.method).toBe('money');
+    expect(fake._calls.refunds.length).toBe(before + 1);
+
+    const credit = await apiCall<{ error: { code: string; message: string } }>(
+      'POST', `/orgs/${orgA.slug}/payments/${paymentId}/refund`, { method: 'credits' }, adminCookie,
+    );
+    expect(credit.status).toBe(409);
+    expect(credit.body.error.code).toBe('refund_already_remedied');
+  });
+
   it('refuses to refund a payment from another org (404 tenant isolation)', async () => {
     const paymentId = await seedPayment(`pi_xorg_${uuid().slice(0, 8)}`);
     const r = await apiCall('POST', `/orgs/${orgB.slug}/payments/${paymentId}/refund`, { method: 'money' }, adminCookie);
