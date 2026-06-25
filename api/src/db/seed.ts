@@ -12,6 +12,7 @@ import {
   organizations, memberships, areas,
 } from './index.js';
 import { pool } from './pool.js';
+import { seedITunesTopTracksForDev } from './seed-itunes.js';
 
 // ── Stable seed IDs (never change — seed is idempotent on these) ─────────────
 const IDS = {
@@ -204,6 +205,10 @@ async function seed() {
         { id: IDS.bundleParty,   organizationId: IDS.defaultOrg, label: 'Party Pack',   credits: 10, bonusCredits: 1, priceCents: 1000, discountPct: '9.09', sortOrder: 2 },
         { id: IDS.bundleVip,     organizationId: IDS.defaultOrg, label: 'VIP Pack',     credits: 20, bonusCredits: 4, priceCents: 2000, discountPct: '16.67', sortOrder: 3 },
       ]).onConflictDoNothing({ target: creditBundles.id });
+    });
+
+    await seedITunesTopTracksForDev({
+      queueItemIds: QUEUE_ITEMS.map((qi) => queueId(qi.n)),
     });
 
     console.log('[seed] ✓ Seed completed successfully');

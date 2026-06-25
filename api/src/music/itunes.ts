@@ -16,7 +16,7 @@ import type { MusicProvider, Track } from './provider.js';
 export const ITUNES_PROVIDER = 'itunes';
 
 /** Subset of the iTunes Search result object we consume. */
-interface ITunesResult {
+export interface ITunesResult {
   wrapperType?: string;
   kind?:        string;
   trackId?:     number;
@@ -34,7 +34,7 @@ interface ITunesResponse {
 }
 
 /** Upgrade the 100x100 artwork URL iTunes returns to a larger square. */
-function upscaleArtwork(url: string | undefined, size = 300): string {
+export function upscaleArtwork(url: string | undefined, size = 300): string {
   if (!url) return '';
   return url.replace(/\/\d+x\d+bb\.(jpg|png)$/i, `/${size}x${size}bb.$1`);
 }
@@ -44,7 +44,7 @@ function isSong(r: ITunesResult): boolean {
   return (r.kind ?? '') === 'song' && typeof r.trackId === 'number' && !!r.trackName;
 }
 
-function normalize(r: ITunesResult): NormalizedTrack {
+export function normalize(r: ITunesResult): NormalizedTrack {
   return {
     provider:   ITUNES_PROVIDER,
     providerId: String(r.trackId),
