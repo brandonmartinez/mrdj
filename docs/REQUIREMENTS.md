@@ -39,7 +39,7 @@ The old global DJ administrator assumption is replaced by Organization-scoped Me
 - **Credits / Wallet** — the spend currency. Guests buy credits with real money; actions debit credits. MVP credits are recommended to be Organization-scoped (O8).
 - **Up Next** — a paid bump that moves a request toward the top of an Area queue.
 - **Play Next** — the premium, single-slot bump for an Area (see §4.5 for exact rules).
-- **Track** — a normalized, provider-agnostic song object (Apple Music or Spotify under the hood).
+- **Track** — a normalized, provider-agnostic song object. MVP live search uses the iTunes Search API; Apple Music and Spotify remain post-MVP provider roadmap items behind the same model.
 
 Tenant-scoped data should carry `organization_id` where relevant so Organization data remains isolated.
 
@@ -64,7 +64,8 @@ Tenant-scoped data should carry `organization_id` where relevant so Organization
 - Each Area owns its own queue and Play Next slot.
 
 ### 4.4 Song discovery & request
-- Search the catalog (Apple Music + Spotify) by title/artist; see artwork and metadata.
+- Search the catalog by title/artist; see artwork and metadata.
+- **MVP/beta provider:** iTunes Search API is the shipped live provider. Apple Music and Spotify are deferred post-MVP integrations because Apple Music requires a paid developer key and Spotify Web API access now requires Premium; track as #17 and #22.
 - Add a selected track to an Area queue as a **Request**.
 - Normal requests are free or low-cost (**O2**). Abuse controls/rate limits apply to guests.
 
@@ -136,10 +137,11 @@ Tenant-scoped data should carry `organization_id` where relevant so Organization
 
 ## 7. Music Integration
 
-- Integrate **Apple Music (MusicKit)** and **Spotify Web API**.
-- A normalized **`Track`** abstraction (search/resolve/metadata) so the queue and UI are provider-agnostic.
+- **MVP/beta provider:** integrate the **iTunes Search API** as the only live music provider for search/resolve/metadata.
+- Keep a normalized **`Track`** abstraction so the queue and UI are provider-agnostic and Apple Music/Spotify can be added cleanly later.
+- **Post-MVP / deferred:** Apple Music (MusicKit) and Spotify Web API. Apple Music requires a paid developer key (#17); Spotify Web API access requires Premium (#22).
 - Provider tokens stay server-side; respect rate limits; cache lookups; degrade gracefully.
-- MVP provider scope (both vs one first) is **O6**.
+- O6 is resolved for MVP as iTunes-first; multi-provider support remains roadmap scope.
 
 ## 8. Non-Functional Requirements
 
@@ -147,7 +149,7 @@ Tenant-scoped data should carry `organization_id` where relevant so Organization
 - **Realtime:** Area queue updates propagate to guests and DJ near-instantly (SSE chosen in slice-02 for current shipped path; future scaling may revisit broker details).
 - **Security:** server-authoritative money paths; RBAC; Organization data isolation; input validation; guest abuse/rate limiting; no secrets in git.
 - **Reliability:** no double-charge/double-grant; transactional spends; idempotent endpoints.
-- **Availability:** 2+ replicas, HPA, PDB; health checks for k8s probes.
+- **Availability:** constrained beta may run as a single replica while sessions/realtime are process-local; 2+ replicas, HPA, and shared session/realtime fan-out are post-beta hardening before broader launch.
 - **Observability:** health endpoint, logs, and (later) metrics suitable for the cluster's Prometheus/Grafana.
 
 ## 9. Deployment & Infrastructure
@@ -158,15 +160,19 @@ Deploy to the project owner's **k3s** cluster, mirroring a proven reference app 
 - **Kustomize** bundle: namespace, deployment, service, ingress, HPA, PDB.
 - **Deployment:** `/api/health` startup/readiness/liveness probes; resource requests/limits; topology spread across nodes.
 - **Ingress:** Traefik ingressClass, cert-manager `letsencrypt-prod`, HTTPS-redirect middleware, host `mrdj.${NETWORK_HOSTNAME_SUFFIX}` → `mrdj.themartinez.cloud`, TLS secret.
-- **Scaling:** HPA min 2 / max 3 (CPU target ~60%); PDB minAvailable 1.
+- **Scaling:** constrained beta runs single-replica unless shared sessions/realtime fan-out are completed; HPA min 2 / max 3 and PDB minAvailable 1 are the post-beta HA target.
 - **Config:** configMap + secret generators from `.env` files; **no secrets in git**.
 - **Data:** likely the cluster's shared **PostgreSQL** (`data` resource: Postgres + PgBouncer) — confirm (relates to O5: where manifests live).
 
 ## 10. MVP Scope
 
-**In:** guest access, Google SSO, DJ self-serve signup, Organization creation, Memberships/roles (`owner`, `manager`, `dj`, `staff`), org-owned concurrent Events, default Area per Event, multi-Area events with per-Area queue + Play Next, Apple Music + Spotify search, request-to-queue, Organization-scoped credits purchase, paid Up Next, premium Play Next (single-slot + reset per Area), realtime DJ console, Stripe Connect Express onboarding + payouts, per-Organization pricing/bundles with platform defaults, Platform Admin surface, k3s deploy.
+**In:** guest access, Google SSO, DJ self-serve signup, Organization creation, Memberships/roles (`owner`, `manager`, `dj`, `staff`), org-owned concurrent Events, default Area per Event, multi-Area events with per-Area queue + Play Next, **iTunes Search API music discovery**, request-to-queue, Organization-scoped credits purchase, paid Up Next, premium Play Next (single-slot + reset per Area), realtime DJ console, Stripe Connect Express onboarding + payouts, per-Organization pricing/bundles with platform defaults, Platform Admin surface, constrained k3s beta deploy.
 
-**Out (now):** Serato, deeper Now-Playing, live remix, native apps, extra SSO providers, subscription tiers, subdomain routing, Postgres RLS.
+**Out (now):** Apple Music (#17) and Spotify (#22) providers, Serato, deeper Now-Playing, live remix, native apps, extra SSO providers, subscription tiers, subdomain routing, Postgres RLS, multi-replica HA until shared sessions/realtime are implemented.
+
+## 10.1 MVP scope / beta limitations
+
+The launchable beta is intentionally constrained: one live music provider (iTunes Search API), single-replica operation unless shared sessions/realtime are completed, and paid-anonymous usage only after unique guest identity and Stripe smoke/reconciliation are proven. These constraints are product scope, not the long-term vision.
 
 ## 11. Backlog / Future Ideas (capture only)
 
@@ -188,7 +194,7 @@ Tracked in `.squad/decisions.md`:
 | O3 | Realtime transport: WebSocket vs SSE | Basher |
 | O4 | Add a dedicated QA agent? | Squad + the project owner |
 | O5 | k8s manifests location: this repo vs cluster repo | Virgil |
-| O6 | Music MVP scope: both providers vs one first | Livingston + Saul |
+| O6 | Music MVP scope: **resolved for MVP as iTunes Search API first**; Apple Music (#17) and Spotify (#22) deferred post-MVP | Livingston + Saul |
 | O7 | Refund / dispute policy | Frank + Saul |
 | O8 | Credit/wallet scope — recommend Organization-scoped | Frank + Rusty |
 | O9 | Per-Organization pricing + credit bundles — recommend per-org with platform defaults | Frank + Saul |

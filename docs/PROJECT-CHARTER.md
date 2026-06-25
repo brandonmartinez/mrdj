@@ -5,7 +5,7 @@
 
 ## Vision
 
-Bring the magic of a paid jukebox to live DJ sets and events, as a **multi-tenant marketplace SaaS for DJs & DJ businesses**. DJs sign up, create an Organization, run their own events, and get paid out via Stripe Connect minus a platform fee. Guests (no app, no account required) browse a catalog backed by Apple Music and Spotify, request songs into an Area queue, and — when they really want to hear something — spend credits to **bump** their song up or grab that Area's premium **Play Next** slot. The DJ stays in control through an org-scoped console; the crowd gets agency and a little friendly competition.
+Bring the magic of a paid jukebox to live DJ sets and events, as a **multi-tenant marketplace SaaS for DJs & DJ businesses**. DJs sign up, create an Organization, run their own events, and get paid out via Stripe Connect minus a platform fee. Guests (no app, no account required) browse a catalog backed in the MVP by the iTunes Search API, request songs into an Area queue, and — when they really want to hear something — spend credits to **bump** their song up or grab that Area's premium **Play Next** slot. Apple Music and Spotify remain post-MVP provider roadmap items. The DJ stays in control through an org-scoped console; the crowd gets agency and a little friendly competition.
 
 ## Mission
 
@@ -18,7 +18,7 @@ Ship a focused, reliable MVP that runs on the project owner's k3s cluster at
 2. **Monetize cleanly.** Credits/wallet as the primary spend; paid Up Next and premium Play Next.
 3. **DJ in control.** An Organization-scoped console to manage, reorder, approve, and play Area queues.
 4. **Multi-tenant by default.** Organizations own events, members, pricing, credit bundles, and payouts.
-5. **Provider-agnostic music.** Apple Music + Spotify behind one normalized Track model.
+5. **Provider-agnostic music.** iTunes Search API for MVP, with Apple Music + Spotify deferred behind one normalized Track model.
 6. **Boring, reliable ops.** Mirror a proven k3s deployment pattern from an existing app on the same cluster.
 7. **Build via the loop.** Iterative loop-engineering workflow with a maker/checker split.
 
@@ -36,9 +36,9 @@ Ship a focused, reliable MVP that runs on the project owner's k3s cluster at
 
 ## Scope
 
-**In (MVP):** guest access, account via Google SSO, DJ self-serve signup, Organizations, Membership roles (`owner`, `manager`, `dj`, `staff`), org-owned concurrent events, event Areas with per-Area queue + Play Next, song discovery (Apple Music + Spotify), request-to-queue, Organization-scoped credits/wallet purchase, paid Up Next, premium Play Next (single-slot per Area, resets), realtime DJ console, Stripe Connect Express onboarding + payouts with platform fee, per-Organization pricing/credit bundles with platform defaults, Platform Admin surface, k3s deployment.
+**In (MVP):** guest access, account via Google SSO, DJ self-serve signup, Organizations, Membership roles (`owner`, `manager`, `dj`, `staff`), org-owned concurrent events, event Areas with per-Area queue + Play Next, song discovery via the iTunes Search API, request-to-queue, Organization-scoped credits/wallet purchase, paid Up Next, premium Play Next (single-slot per Area, resets), realtime DJ console, Stripe Connect Express onboarding + payouts with platform fee, per-Organization pricing/credit bundles with platform defaults, constrained k3s beta deployment, Platform Admin surface.
 
-**Out (backlog — captured, not built):** Serato integration, deeper Now-Playing
+**Out (backlog — captured, not built):** Apple Music (#17) and Spotify (#22) providers, Serato integration, deeper Now-Playing
 integration, live remix of two requested songs (upcharge), native mobile apps, additional SSO providers beyond Google, optional DJ subscription tiers, subdomain tenant routing, Postgres RLS.
 
 ## Engineering Principles
