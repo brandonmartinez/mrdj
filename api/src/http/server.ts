@@ -50,7 +50,10 @@ export function createApp() {
     cookie: {
       httpOnly: true,
       sameSite: 'lax',
-      secure: false, // set true behind HTTPS in prod (Traefik handles TLS)
+      // Secure cookies in production: Traefik terminates TLS and `trust proxy` is set, so
+      // express-session sees X-Forwarded-Proto=https and the cookie is sent only over HTTPS.
+      // Kept false in dev where the SPA + API are served over plain http on localhost.
+      secure: !cfg.isDev,
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
     },
   }));

@@ -7,6 +7,14 @@ async function main() {
   console.log('[api] mrdj API starting…');
   console.log(`[api] env=${cfg.nodeEnv} port=${cfg.port}`);
 
+  // Security fail-fast (#68): never boot production with the weak dev session secret. A
+  // predictable secret lets anyone forge session cookies. The k8s secret injects a real one.
+  if (!cfg.isDev && (cfg.sessionSecret === 'dev-secret-change-in-prod' || cfg.sessionSecret.length < 16)) {
+    console.error('[api] FATAL: SESSION_SECRET is unset or using the dev default in production. ' +
+      'Set a strong (≥16 char) SESSION_SECRET.');
+    process.exit(1);
+  }
+
   // Process-level safety net: a transient failure (e.g. a DB blip, or db:reset run against
   // the live stack) must never hard-crash the API. Log and keep serving — the per-request
   // error boundary (asyncHandler + terminal error middleware) already converts in-request
