@@ -87,7 +87,7 @@ export class ITunesMusicProvider implements MusicProvider {
     this.backoff    = { ...defaultBackoff(), ...opts.backoff };
   }
 
-  async search(query: string, limit = 15): Promise<Track[]> {
+  async search(query: string, limit = 15, signal?: AbortSignal): Promise<Track[]> {
     const term = query.trim();
     // iTunes Search has no "featured/empty" mode; use a sensible default seed term.
     const effective = term || 'top songs';
@@ -98,7 +98,7 @@ export class ITunesMusicProvider implements MusicProvider {
       country: this.storefront,
     }).toString();
 
-    const res = await fetchWithBackoff(url, { headers: { Accept: 'application/json' } }, this.backoff);
+    const res = await fetchWithBackoff(url, { headers: { Accept: 'application/json' }, signal }, this.backoff);
     if (!res.ok) throw new Error(`iTunes search failed (${res.status})`);
     const data = (await res.json()) as ITunesResponse;
 
@@ -107,18 +107,18 @@ export class ITunesMusicProvider implements MusicProvider {
     return upsertTracks(normalized);
   }
 
-  async resolve(providerId: string): Promise<Track | null> {
-    return resolveWithCache(ITUNES_PROVIDER, providerId, (id) => this.fetchById(id));
+  async resolve(providerId: string, signal?: AbortSignal): Promise<Track | null> {
+    return resolveWithCache(ITUNES_PROVIDER, providerId, (id) => this.fetchById(id, signal));
   }
 
   /** Raw provider fetch by id (used by the cache layer on miss/stale). */
-  private async fetchById(providerId: string): Promise<NormalizedTrack | null> {
+  private async fetchById(providerId: string, signal?: AbortSignal): Promise<NormalizedTrack | null> {
     const url = `${this.baseUrl}/lookup?` + new URLSearchParams({
       id:      providerId,
       country: this.storefront,
     }).toString();
 
-    const res = await fetchWithBackoff(url, { headers: { Accept: 'application/json' } }, this.backoff);
+    const res = await fetchWithBackoff(url, { headers: { Accept: 'application/json' }, signal }, this.backoff);
     if (!res.ok) throw new Error(`iTunes lookup failed (${res.status})`);
     const data = (await res.json()) as ITunesResponse;
     const hit = (data.results ?? []).find(isSong);

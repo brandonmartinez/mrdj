@@ -105,7 +105,7 @@ export class AppleMusicProvider implements MusicProvider {
   }
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  async search(_query: string, _limit = 15): Promise<Track[]> {
+  async search(_query: string, _limit = 15, _signal?: AbortSignal): Promise<Track[]> {
     throw new MusicProviderConfigError(
       'AppleMusicProvider.search is a scaffold (fast-follow). Implement GET ' +
       this.apiUrl + '/catalog/{storefront}/search using AppleDeveloperTokenManager.',
@@ -113,7 +113,7 @@ export class AppleMusicProvider implements MusicProvider {
   }
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  async resolve(_providerId: string): Promise<Track | null> {
+  async resolve(_providerId: string, _signal?: AbortSignal): Promise<Track | null> {
     throw new MusicProviderConfigError(
       'AppleMusicProvider.resolve is a scaffold — implement GET ' +
       this.apiUrl + '/catalog/{storefront}/songs/{id}.',

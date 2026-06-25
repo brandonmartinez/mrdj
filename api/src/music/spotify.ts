@@ -78,7 +78,7 @@ export class SpotifyMusicProvider implements MusicProvider {
   }
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  async search(_query: string, _limit = 15): Promise<Track[]> {
+  async search(_query: string, _limit = 15, _signal?: AbortSignal): Promise<Track[]> {
     throw new MusicProviderConfigError(
       'SpotifyMusicProvider.search is a scaffold — Spotify Web API requires Premium; MVP uses iTunes. ' +
       'Implement GET ' + this.apiUrl + '/search using SpotifyTokenManager when enabling Spotify.',
@@ -86,7 +86,7 @@ export class SpotifyMusicProvider implements MusicProvider {
   }
 
   // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  async resolve(_providerId: string): Promise<Track | null> {
+  async resolve(_providerId: string, _signal?: AbortSignal): Promise<Track | null> {
     throw new MusicProviderConfigError(
       'SpotifyMusicProvider.resolve is a scaffold — implement GET ' + this.apiUrl + '/tracks/{id}.',
     );

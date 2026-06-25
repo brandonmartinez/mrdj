@@ -9,11 +9,11 @@ import type { MusicProvider, Track } from './provider.js';
 export class StubMusicProvider implements MusicProvider {
   readonly name = 'stub';
 
-  async search(query: string, limit = 15): Promise<Track[]> {
+  async search(query: string, limit = 15, _signal?: AbortSignal): Promise<Track[]> {
     return searchStubTracks(query, limit);
   }
 
-  async resolve(providerId: string): Promise<Track | null> {
+  async resolve(providerId: string, _signal?: AbortSignal): Promise<Track | null> {
     const [row] = await db
       .select(TRACK_COLS)
       .from(tracks)

@@ -187,6 +187,25 @@ describe('ITunesMusicProvider.search', () => {
     const rows = await db.select().from(tracks).where(eq(tracks.provider, 'itunes'));
     expect(rows.length).toBe(3); // no duplicates
   });
+
+
+  it('propagates caller aborts promptly without caching partial results', async () => {
+    const controller = new AbortController();
+    const fetchFn = vi.fn(async (_url, init) => new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener('abort', () => reject(init.signal?.reason), { once: true });
+    }));
+    const abortingProvider = new ITunesMusicProvider({
+      backoff: { fetch: fetchFn as unknown as typeof fetch, maxAttempts: 3, sleep: noSleep },
+    });
+
+    const pending = abortingProvider.search('daft punk', 1, controller.signal);
+    controller.abort(new DOMException('client closed', 'AbortError'));
+
+    await expect(pending).rejects.toMatchObject({ name: 'AbortError' });
+    expect(fetchFn).toHaveBeenCalledTimes(1);
+    const rows = await db.select().from(tracks).where(eq(tracks.provider, 'itunes'));
+    expect(rows).toHaveLength(0);
+  });
 });
 
 // ── iTunes resolve + TTL cache (#27) ───────────────────────────────────────────

@@ -15,20 +15,25 @@ export class RoutingMusicProvider implements MusicProvider {
     this.providers = providers;
   }
 
-  async search(query: string, limit?: number): Promise<Track[]> {
-    return this.withFallback('search', (p) => p.search(query, limit));
+  async search(query: string, limit?: number, signal?: AbortSignal): Promise<Track[]> {
+    return this.withFallback('search', (p) => p.search(query, limit, signal), signal);
   }
 
-  async resolve(providerId: string): Promise<Track | null> {
-    return this.withFallback('resolve', (p) => p.resolve(providerId));
+  async resolve(providerId: string, signal?: AbortSignal): Promise<Track | null> {
+    return this.withFallback('resolve', (p) => p.resolve(providerId, signal), signal);
   }
 
-  private async withFallback<T>(op: string, run: (p: MusicProvider) => Promise<T>): Promise<T> {
+  private async withFallback<T>(
+    op: string,
+    run: (p: MusicProvider) => Promise<T>,
+    signal?: AbortSignal,
+  ): Promise<T> {
     let lastErr: unknown;
     for (const p of this.providers) {
       try {
         return await run(p);
       } catch (err) {
+        if (signal?.aborted) throw err;
         lastErr = err;
         this.onError?.(p.name, err);
       }

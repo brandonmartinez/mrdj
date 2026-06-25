@@ -56,31 +56,81 @@ export function parseRetryAfter(header: string | null, now = Date.now()): number
   return null;
 }
 
-function timeoutSignal(parent: AbortSignal | null | undefined, timeoutMs: number): { signal: AbortSignal; cleanup: () => void } {
-  const controller = new AbortController();
-  let timeout: ReturnType<typeof setTimeout> | null = null;
-  const timeoutError = new MusicProviderHttpError(`music provider fetch timed out after ${timeoutMs}ms`, {
-    code: 'timeout',
-  });
+function abortReason(signal: AbortSignal): Error {
+  return signal.reason instanceof Error
+    ? signal.reason
+    : new DOMException('The operation was aborted', 'AbortError');
+}
 
-  const onAbort = () => {
-    controller.abort(parent?.reason);
+function anySignal(signals: AbortSignal[]): { signal: AbortSignal; cleanup: () => void } {
+  const active = signals.filter(Boolean);
+  const nativeAny = (AbortSignal as typeof AbortSignal & { any?: (signals: AbortSignal[]) => AbortSignal }).any;
+  if (typeof nativeAny === 'function') {
+    return { signal: nativeAny(active), cleanup: () => {} };
+  }
+
+  const controller = new AbortController();
+  const listeners = new Map<AbortSignal, () => void>();
+  const abortFrom = (signal: AbortSignal) => {
+    if (!controller.signal.aborted) controller.abort(signal.reason);
   };
 
-  if (parent?.aborted) {
-    controller.abort(parent.reason);
-  } else {
-    parent?.addEventListener('abort', onAbort, { once: true });
-    timeout = setTimeout(() => controller.abort(timeoutError), timeoutMs);
+  for (const signal of active) {
+    if (signal.aborted) {
+      abortFrom(signal);
+      break;
+    }
+    const listener = () => abortFrom(signal);
+    listeners.set(signal, listener);
+    signal.addEventListener('abort', listener, { once: true });
   }
 
   return {
     signal: controller.signal,
     cleanup: () => {
-      if (timeout) clearTimeout(timeout);
-      parent?.removeEventListener('abort', onAbort);
+      for (const [signal, listener] of listeners) signal.removeEventListener('abort', listener);
     },
   };
+}
+
+function timeoutSignal(parent: AbortSignal | null | undefined, timeoutMs: number): { signal: AbortSignal; cleanup: () => void } {
+  const timeoutController = new AbortController();
+  const timeoutError = new MusicProviderHttpError(`music provider fetch timed out after ${timeoutMs}ms`, {
+    code: 'timeout',
+  });
+  const timeout = setTimeout(() => timeoutController.abort(timeoutError), timeoutMs);
+  const combined = parent
+    ? anySignal([parent, timeoutController.signal])
+    : { signal: timeoutController.signal, cleanup: () => {} };
+
+  return {
+    signal: combined.signal,
+    cleanup: () => {
+      clearTimeout(timeout);
+      combined.cleanup();
+    },
+  };
+}
+
+async function sleepWithAbort(
+  sleep: (ms: number) => Promise<void>,
+  ms: number,
+  signal: AbortSignal | null | undefined,
+): Promise<void> {
+  if (!signal) return sleep(ms);
+  if (signal.aborted) throw abortReason(signal);
+
+  let onAbort: (() => void) | undefined;
+  const aborted = new Promise<never>((_resolve, reject) => {
+    onAbort = () => reject(abortReason(signal));
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
+
+  try {
+    await Promise.race([sleep(ms), aborted]);
+  } finally {
+    if (onAbort) signal.removeEventListener('abort', onAbort);
+  }
 }
 
 /**
@@ -102,12 +152,15 @@ export async function fetchWithBackoff(
   const totalTimeoutMs     = opts.totalTimeoutMs ?? 9_000;
   const sleep              = opts.sleep ?? defaultSleep;
   const fetchFn            = opts.fetch ?? fetch;
+  const callerSignal       = init?.signal;
 
   let lastErr: unknown;
   let sleptMs = 0;
   const startedAt = Date.now();
 
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    if (callerSignal?.aborted) throw abortReason(callerSignal);
+
     let res: Response | undefined;
     const remainingBudgetMs = totalTimeoutMs - (Date.now() - startedAt);
     if (remainingBudgetMs <= 0) {
@@ -122,6 +175,7 @@ export async function fetchWithBackoff(
     try {
       res = await fetchFn(url, { ...init, signal: bounded.signal });
     } catch (err) {
+      if (callerSignal?.aborted) throw abortReason(callerSignal);
       lastErr = bounded.signal.aborted && bounded.signal.reason instanceof MusicProviderHttpError
         ? bounded.signal.reason
         : err;
@@ -161,7 +215,7 @@ export async function fetchWithBackoff(
     }
 
     sleptMs += delay;
-    await sleep(delay);
+    await sleepWithAbort(sleep, delay, callerSignal);
   }
 
   // Unreachable, but satisfies the type checker.

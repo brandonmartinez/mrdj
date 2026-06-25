@@ -28,14 +28,15 @@ export interface MusicProvider {
    * Search tracks by query string.
    * Empty query returns a default/featured list.
    * Results are normalized to Track and cached in the `tracks` table.
+   * The optional signal aborts caller-initiated work without writing partial cache rows.
    */
-  search(query: string, limit?: number): Promise<Track[]>;
+  search(query: string, limit?: number, signal?: AbortSignal): Promise<Track[]>;
 
   /**
    * Re-fetch a single track by its provider-native ID (queue hydration / stale
    * preview re-resolution, #27). Returns null if the provider no longer has it.
    */
-  resolve(providerId: string): Promise<Track | null>;
+  resolve(providerId: string, signal?: AbortSignal): Promise<Track | null>;
 }
 
 /** Thrown when a provider can't be constructed because required env is missing (fail-fast). */
