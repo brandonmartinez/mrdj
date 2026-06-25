@@ -9,3 +9,13 @@ node_modules
 .copilot
 .DS_Store
 **/.DS_Store
+# Build outputs — regenerated inside the image by `npm run build`.
+api/dist
+web/dist
+# Local-only tooling/config not needed in the build context.
+.devcontainer
+docker-compose.yml
+k8s
+docs
+*.md
+!README.md

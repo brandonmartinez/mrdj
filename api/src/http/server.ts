@@ -3,10 +3,12 @@ import express from 'express';
 import type { NextFunction, Request, Response } from 'express';
 import session from 'express-session';
 import cors from 'cors';
+import fs from 'node:fs';
+import path from 'node:path';
 import { cfg } from '../config/index.js';
 import { initSession } from './middleware.js';
 import { registerRoutes } from './routes.js';
-import { asyncHandler } from './middleware.js';
+import { asyncHandler, sendError } from './middleware.js';
 import { stripeWebhookHandler } from '../payments/webhooks.js';
 import { PaymentConfigError } from '../payments/provider.js';
 
@@ -57,6 +59,25 @@ export function createApp() {
   app.use(initSession);
 
   registerRoutes(app);
+
+  // ── Static SPA (production single-container, #36) ──────────────────────────
+  // When WEB_DIST_PATH points at a built frontend, serve its assets and fall back to
+  // index.html for any non-/api GET so client-side routing (react-router) works on deep
+  // links / refresh. Mounted AFTER the API routes (so /api/* always wins) and BEFORE the
+  // error boundary. No-op in dev/tests where the dir is unset (Vite serves the SPA).
+  if (cfg.webDistPath && fs.existsSync(cfg.webDistPath)) {
+    const indexHtml = path.join(cfg.webDistPath, 'index.html');
+    app.use(express.static(cfg.webDistPath));
+    app.get(/^(?!\/api\/).*/, (_req: Request, res: Response) => {
+      res.sendFile(indexHtml);
+    });
+  }
+
+  // Final catch-all 404 for anything still unmatched (non-/api paths when no SPA is mounted,
+  // e.g. dev/tests). Preserves the prior JSON 404 contract for those requests.
+  app.use((req: Request, res: Response) => {
+    sendError(res, 404, 'not_found', `No route: ${req.method} ${req.originalUrl}`);
+  });
 
   // Terminal error boundary — any error passed to next() (incl. async throws caught by
   // asyncHandler) lands here as a JSON 500 instead of crashing the process or leaking a

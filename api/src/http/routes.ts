@@ -216,7 +216,10 @@ export function registerRoutes(app: Express) {
     asyncHandler(resolveOrg()), asyncHandler(requireMembership('manager')), asyncHandler(deleteAreaHandler));
 
   // ── 404 catch-all ─────────────────────────────────────────────────────────
-  app.use((req, res) => {
-    sendError(res, 404, 'not_found', `No route: ${req.method} ${req.path}`);
+  // Scoped to /api so unmatched API calls get a JSON 404. Non-/api requests fall through
+  // to the static SPA handler (mounted after registerRoutes) for client-side routing; if no
+  // SPA is mounted (dev/tests) the server-level handler returns a 404 for those too.
+  app.use('/api', (req, res) => {
+    sendError(res, 404, 'not_found', `No route: ${req.method} ${req.originalUrl}`);
   });
 }

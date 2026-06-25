@@ -55,6 +55,11 @@ export const cfg = {
   stripeConnectReturnUrl:  process.env.STRIPE_CONNECT_RETURN_URL ?? 'http://localhost:5173/connect/return',
   // Window (ms) during which a card refund may still be issued (O7). Default 30 days.
   refundWindowMs:          parseInt(process.env.REFUND_WINDOW_MS ?? String(30 * 24 * 60 * 60 * 1000), 10),
+  // ── Static SPA serving (production single-container, Epic 9 #36) ─────────────
+  // In production the API and the built React SPA are served from one container on one port
+  // (the SPA calls /api on the same origin). Set to the web build directory to enable static
+  // serving + SPA fallback. Empty in dev/tests (Vite serves the frontend on :5173 instead).
+  webDistPath:             process.env.WEB_DIST_PATH ?? '',
   // ── Guest rate limiting (Epic 9 hardening, #57) ────────────────────────────
   // Coarse per-IP + per-session abuse guard on guest request-submit and search.
   // Off in development (so the dev loop + test suite aren't throttled), on otherwise.

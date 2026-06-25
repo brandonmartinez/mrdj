@@ -1,0 +1,97 @@
+# Build the mrdj container image and publish it to GHCR on every push to main.
+# Tests must pass first; a failing suite fails the job and nothing is pushed (#36).
+name: build-publish
+
+on:
+  push:
+    branches: [main]
+    # Skip churn for doc/manifest-only changes that can't affect the image.
+    paths-ignore:
+      - 'docs/**'
+      - 'k8s/**'
+      - '**/*.md'
+  workflow_dispatch:
+
+concurrency:
+  group: build-publish-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: brandonmartinez/mrdj
+
+jobs:
+  # ── Gate: schema + seed a throwaway Postgres, run the suite, build both bundles. ──
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: mrdj
+          POSTGRES_PASSWORD: mrdj
+          POSTGRES_DB: mrdj
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U mrdj"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://mrdj:mrdj@localhost:5432/mrdj
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Apply migrations
+        run: npm run db:migrate -w api
+      - name: Seed baseline data
+        run: npm run db:seed -w api
+      - name: Run API test suite
+        run: npm run test -w api
+      - name: Build api + web bundles
+        run: npm run build
+
+  # ── Publish: build linux/amd64 and push SHA + semver (+ latest) tags to GHCR. ──
+  build-publish:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read version from package.json
+        id: meta
+        run: |
+          echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+          echo "sha_short=$(git rev-parse --short HEAD)" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          push: true
+          tags: |
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:v${{ steps.meta.outputs.version }}
+            ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:sha-${{ steps.meta.outputs.sha_short }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: false
