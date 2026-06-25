@@ -9,8 +9,8 @@ This directory contains a complete Kubernetes deployment bundle for mrdj, design
 **Key characteristics:**
 - **Namespace:** `mrdj`
 - **Image:** `ghcr.io/brandonmartinez/mrdj` (published via CI)
-- **Replicas:** 2 (HPA scales 2–3 based on CPU ~60%)
-- **Health:** `/api/health` startup/readiness/liveness probes
+- **Replicas:** 1 (HPA disabled until shared sessions and brokered realtime are both in place)
+- **Health:** `/api/livez` startup/liveness probes; `/api/health` readiness probe
 - **Ingress:** Traefik + cert-manager TLS (`letsencrypt-prod`)
 - **Config:** Kustomize configMap + secret generators from `.env` files
 - **Database:** Shared cluster PostgreSQL (PgBouncer endpoint in `data` namespace)
@@ -25,12 +25,13 @@ This directory contains a complete Kubernetes deployment bundle for mrdj, design
               ↓
 ┌─────────────────────────────────────────┐
 │ mrdj-svc (ClusterIP)                    │
-│ ↓ Load balances to 2+ pods (HPA 2-3)   │
+│ ↓ Routes to a single pod (HPA disabled)   │
 └─────────────────────────────────────────┘
               ↓
 ┌─────────────────────────────────────────┐
-│ mrdj pods (topology spread across nodes)│
-│ - /api/health probes                    │
+│ mrdj pod (single-replica MVP topology)  │
+│ - /api/livez startup/liveness probes    │
+│ - /api/health readiness probe           │
 │ - envFrom configMap + secret            │
 │ - Resource limits: 512Mi / 1 CPU        │
 └─────────────────────────────────────────┘
@@ -47,10 +48,9 @@ This directory contains a complete Kubernetes deployment bundle for mrdj, design
 | File | Purpose |
 |------|---------|
 | `namespace.yml` | Creates the `mrdj` namespace |
-| `deployment.yml` | Main app deployment (2 replicas, health probes, topology spread) |
+| `deployment.yml` | Main app deployment (1 replica, health probes, topology spread for future scale-up) |
 | `service.yml` | ClusterIP service exposing port 80 → container 3000 |
 | `ingress.yml` | Traefik ingress with TLS (cert-manager `letsencrypt-prod`) |
-| `horizontalpodautoscaler.yml` | HPA scaling 2–3 replicas at 60% CPU |
 | `pdb.yml` | PodDisruptionBudget ensuring min 1 replica available during disruptions |
 | `kustomization.yml` | Kustomize orchestration (configMap + secret generators, labels) |
 | `init-mrdj-db.sh` | Idempotent Postgres bootstrap (creates the `mrdj` role + database); promoted into the cluster's `postgres-init` ConfigMap (#45) |
@@ -143,13 +143,22 @@ After updating the `data` resource, restart the PostgreSQL pod to run the init s
 
 This deployment closely follows the structure of an existing reference app on the same cluster:
 
-- **Health probes:** Same `/api/health` endpoint, same timing thresholds
+- **Health probes:** Startup/liveness use `/api/livez`; readiness uses DB-gated `/api/health`
 - **Resource limits:** Adjusted for mrdj's expected load (128Mi–512Mi, 100m–1000m CPU)
 - **Ingress annotations:** Identical cert-manager + Traefik HTTPS-redirect middleware
-- **HPA strategy:** 2–3 replicas, 60% CPU target (same as the reference app)
+- **HPA strategy:** Disabled for MVP; do not scale above one pod until shared session storage and brokered realtime are both complete
 - **PDB:** minAvailable 1 (ensures availability during node maintenance)
 - **Topology spread:** Distributes pods across nodes for resilience
 - **Config pattern:** Kustomize generators from `.env` files, secrets never in git
+
+## MVP topology constraint
+
+Production is intentionally pinned to **one replica** for the MVP. Issue #105 is being addressed in two halves: the session store is now Postgres-backed, but realtime/SSE fan-out is still process-local. Keep HPA disabled and do not scale past one pod until both the shared session store and brokered realtime fan-out are in place. The remaining blocker is the realtime-fan-out follow-up.
+
+## Deferred platform hardening
+
+- Replace the mutable `:latest` deployment image with an immutable SHA tag or digest promotion flow.
+- Replace local plaintext `.env.secret.temp` production secret generation with External Secrets, SOPS/age, SealedSecrets, or the cluster-standard secret manager.
 
 ## mrdj-specific choices
 
@@ -162,11 +171,14 @@ This deployment closely follows the structure of an existing reference app on th
 
 ## Assumptions
 
-1. **`${NETWORK_HOSTNAME_SUFFIX}` = `themartinez.cloud`**  
-   Confirmed from cluster `.env`: `NETWORK_HOSTNAME_SUFFIX=themartinez.cloud`  
+1. **Single-replica beta topology**
+   HPA is intentionally not part of `kustomization.yml`; keep `replicas: 1` until brokered realtime removes the process-local fan-out blocker.
+
+2. **`${NETWORK_HOSTNAME_SUFFIX}` = `themartinez.cloud`**
+   Confirmed from cluster `.env`: `NETWORK_HOSTNAME_SUFFIX=themartinez.cloud`
    → mrdj will be accessible at `https://mrdj.themartinez.cloud`
 
-2. **Shared PostgreSQL (data namespace)**  
+3. **Shared PostgreSQL (data namespace)**
    mrdj connects to the cluster's existing PostgreSQL via PgBouncer:
    - **Service DNS:** `postgres-svc.data.svc.cluster.local:5432`
    - **Auth:** Same `POSTGRES_USER` / `POSTGRES_PASSWORD` as other apps
@@ -175,7 +187,7 @@ This deployment closely follows the structure of an existing reference app on th
 
 ## Next Steps
 
-1. **Implement `/api/health` endpoint** (Basher) — must return 200 OK when app is ready
+1. **Broker realtime fan-out** — required before HPA/multiple replicas can return
 2. **Database init script** — add `init-mrdj-db.sh` to `data/postgres-init.yml` in cluster repo
 3. **CI/CD pipeline** — build → push → deploy automation (Virgil)
 4. **Secrets provisioning** — generate real `.env.secret.temp` values and apply (Virgil + team)
@@ -194,7 +206,8 @@ kubectl logs -n mrdj -l app=mrdj --tail=100
 ```
 
 **Health check failing:**
-- Verify `/api/health` endpoint exists and returns 200 OK
+- Verify `/api/livez` returns 200 OK for startup/liveness.
+- Verify `/api/health` returns 200 OK only when the app is ready, including database connectivity.
 - Check startup probe `failureThreshold` (12 × 10s = 2min max startup time)
 
 **Database connection errors:**
