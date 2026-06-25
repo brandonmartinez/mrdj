@@ -46,10 +46,11 @@ Constraints and forces:
 Adopt a **hybrid authoring model with the cluster repo as canonical**:
 
 1. **Author + validate in this repo (`k8s/`).** The Kustomize bundle (`kustomization.yml`, `deployment.yml`,
-   `service.yml`, `ingress.yml`, `horizontalpodautoscaler.yml`, `pdb.yml`, `namespace.yml`, generator
-   `*.env.example` templates) lives here and is the working copy during the MVP. It is validated with
-   `kubectl kustomize k8s/` (and rendered in CI once #36 lands) but **this repo never applies it to the
-   cluster**.
+   `service.yml`, `ingress.yml`, `pdb.yml`, `namespace.yml`, generator `*.env.example` templates) lives
+   here and is the working copy during the MVP. HPA is intentionally absent while the beta remains
+   single-replica. Manifest changes are validated with `kubectl kustomize k8s/`; image publication is
+   separately gated in CI by migrations, seed, API tests, and build, but **this repo never applies manifests
+   to the cluster**.
 2. **Cluster repo is canonical for what's deployed.** At go-live the validated bundle is promoted into
    the cluster GitOps repo under its `mrdj` resource path. From then on, the cluster reconciler applies
    **only** the cluster-repo copy. That copy is the single source of truth for the running system.
@@ -59,8 +60,9 @@ Adopt a **hybrid authoring model with the cluster repo as canonical**:
      The cluster repo's review + reconcile process is the production change gate.
    - Tag the app image by commit SHA (CI, #36); the cluster-repo PR bumps the image tag. App code and
      deployed image version are thus correlated but independently reviewable.
-4. **Secrets never promoted via git.** `*.env.secret.temp` is provisioned directly in the cluster
-   (sealed/external secret or out-of-band), never committed to either repo.
+4. **Secrets never promoted via git.** For beta, `k8s/.env.secret.temp` is generated locally and remains
+   gitignored; it is never committed to either repo. Sealed/external secret management is deferred to
+   post-beta hardening (#108).
 
 ### Why not "this repo canonical (CI applies on push)"
 

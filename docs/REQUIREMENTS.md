@@ -158,12 +158,12 @@ Tenant-scoped data should carry `organization_id` where relevant so Organization
 Deploy to the project owner's **k3s** cluster, mirroring a proven reference app already running on the same cluster:
 
 - Container image published to **GHCR**: `ghcr.io/brandonmartinez/mrdj`.
-- **Kustomize** bundle: namespace, deployment, service, ingress, HPA, PDB.
-- **Deployment:** `/api/health` startup/readiness/liveness probes; resource requests/limits; topology spread across nodes.
+- **Kustomize** bundle: namespace, deployment, service, ingress, PDB, configMap generator, and secret generator. HPA is intentionally absent for the beta.
+- **Deployment:** `/api/livez` startup/liveness probes, DB-gated `/api/health` readiness probe, resource requests/limits, and topology spread for future scale-up.
 - **Ingress:** Traefik ingressClass, cert-manager `letsencrypt-prod`, HTTPS-redirect middleware, host `mrdj.${NETWORK_HOSTNAME_SUFFIX}` → `mrdj.themartinez.cloud`, TLS secret.
-- **Scaling:** constrained beta runs single-replica unless shared sessions/realtime fan-out are completed; HPA min 2 / max 3 and PDB minAvailable 1 are the post-beta HA target.
-- **Config:** configMap + secret generators from `.env` files; **no secrets in git**.
-- **Data:** likely the cluster's shared **PostgreSQL** (`data` resource: Postgres + PgBouncer) — confirm (relates to O5: where manifests live).
+- **Scaling:** constrained beta runs single-replica; HPA min 2 / max 3 and broader HA return only after shared sessions/realtime fan-out are complete.
+- **Config:** configMap + secret generators from `.env` files; current secret generation uses a local gitignored `k8s/.env.secret.temp`; **no secrets in git**.
+- **Data:** cluster shared **PostgreSQL** via PgBouncer (`data` namespace).
 
 ## 10. MVP Scope
 

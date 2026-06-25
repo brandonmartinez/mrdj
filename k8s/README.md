@@ -65,15 +65,15 @@ This directory contains a complete Kubernetes deployment bundle for mrdj, design
 
 ### 1. Build & Push Image (CI)
 
-```bash
-# Build the container image
-docker build -t ghcr.io/brandonmartinez/mrdj:latest .
+`.github/workflows/build-publish.yml` publishes the image on pushes to `main` that touch application inputs (docs and `k8s/`-only changes are ignored). The publish job's current gate (added in `a07f4b7`) is:
 
-# Push to GitHub Container Registry
-docker push ghcr.io/brandonmartinez/mrdj:latest
-```
+1. `npm ci`
+2. `npm run db:migrate -w api` against a throwaway Postgres service
+3. `npm run db:seed -w api` with `SEED_ITUNES=false`
+4. `npm run test -w api`
+5. `npm run build`
 
-CI will tag images with both `:latest` and commit SHA (e.g., `:sha-abc123`). The Kustomize manifest uses `:latest` as a placeholder; CI can override the image tag before applying.
+After those gates pass, CI publishes `:latest`, `:v<package-version>`, and `:sha-<short-commit>` tags to `ghcr.io/brandonmartinez/mrdj`. The current authored manifest still uses `:latest` as a placeholder; immutable digest/SHA promotion through the cluster repo is deferred to post-beta hardening (#108).
 
 ### 2. Configure Environment
 
@@ -87,6 +87,8 @@ cp .env.secret.example .env.secret.temp
 # Edit .env and .env.secret.temp with real values
 # NEVER commit .env.secret.temp — it's gitignored
 ```
+
+This is the current local secret-generation path: real secret values are written into the gitignored `k8s/.env.secret.temp`, then Kustomize's `secretGenerator` renders them into a Kubernetes Secret at apply time. Do not commit or paste the generated file into either repo. External/sealed secrets are a post-beta hardening item (#108).
 
 **Key values to set:**
 
@@ -153,12 +155,16 @@ This deployment closely follows the structure of an existing reference app on th
 
 ## MVP topology constraint
 
-Production is intentionally pinned to **one replica** for the MVP. Issue #105 is being addressed in two halves: the session store is now Postgres-backed, but realtime/SSE fan-out is still process-local. Keep HPA disabled and do not scale past one pod until both the shared session store and brokered realtime fan-out are in place. The remaining blocker is the realtime-fan-out follow-up.
+Production is intentionally pinned to **one replica** for the MVP. Issue #105 is being addressed in two halves: the session store is now Postgres-backed, but realtime/SSE fan-out is still process-local. HPA was removed in `9fe60c0`; keep it disabled and do not scale past one pod until both the shared session store and brokered realtime fan-out are in place. The remaining blocker is the realtime-fan-out follow-up.
 
-## Deferred platform hardening
+## Known limitations / Post-beta hardening (#108)
 
-- Replace the mutable `:latest` deployment image with an immutable SHA tag or digest promotion flow.
-- Replace local plaintext `.env.secret.temp` production secret generation with External Secrets, SOPS/age, SealedSecrets, or the cluster-standard secret manager.
+These are intentionally documented gaps for the beta; do not silently treat them as done:
+
+- **Immutable image promotion:** replace the mutable `:latest` deployment placeholder with an immutable SHA tag or image digest promoted through the cluster repo. Also digest-pin moving base images (`node:22-alpine`, `postgres:16-alpine`) and automate updates.
+- **Secret management:** replace local plaintext `.env.secret.temp` production secret generation with External Secrets, SOPS/age, SealedSecrets, or the cluster-standard secret manager.
+- **HSTS/security headers:** Traefik TLS redirect is configured, but this manifest does not attach an explicit HSTS headers middleware yet. Add it once hostname/TLS behavior is confirmed.
+- **Standalone image healthcheck:** Kubernetes probes cover cluster operation, but the Docker image does not define a `HEALTHCHECK` for non-k8s consumers. If needed, add one against `/api/livez`.
 
 ## mrdj-specific choices
 
@@ -189,8 +195,8 @@ Production is intentionally pinned to **one replica** for the MVP. Issue #105 is
 
 1. **Broker realtime fan-out** — required before HPA/multiple replicas can return
 2. **Database init script** — add `init-mrdj-db.sh` to `data/postgres-init.yml` in cluster repo
-3. **CI/CD pipeline** — build → push → deploy automation (Virgil)
-4. **Secrets provisioning** — generate real `.env.secret.temp` values and apply (Virgil + team)
+3. **Promote manifests at launch** — copy the validated `k8s/` bundle into the cluster GitOps repo
+4. **Secrets provisioning** — generate real `.env.secret.temp` values locally for beta apply; replace with sealed/external secrets post-beta (#108)
 5. **Resolve Open Decisions:**
    - **O1:** Payment provider config (Frank)
    - **O5:** Manifest location — RESOLVED, see `docs/decisions/manifests-location.md` (cluster repo canonical; author/validate in `k8s/`, promote at launch)
