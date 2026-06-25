@@ -24,6 +24,10 @@ declare module 'express-session' {
 export function createApp() {
   const app = express();
 
+  // Behind Traefik/ingress in prod: trust the proxy so req.ip reflects the real client
+  // (X-Forwarded-For) for rate limiting and logging, not the load balancer's address.
+  app.set('trust proxy', 1);
+
   app.use(cors({
     origin: cfg.isDev ? ['http://localhost:5173', 'http://127.0.0.1:5173'] : false,
     credentials: true,

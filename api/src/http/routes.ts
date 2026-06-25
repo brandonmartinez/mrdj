@@ -24,6 +24,7 @@ import {
   adminStatsHandler,
 } from '../admin/index.js';
 import { streamHandler } from '../realtime/index.js';
+import { guestRateLimit } from './rate-limit.js';
 import {
   requireAdmin, requirePlatformAdmin, resolveOrg, requireMembership,
   sendError, asyncHandler,
@@ -42,6 +43,27 @@ import {
 import { loginStartHandler, authCallbackHandler, logoutHandler } from '../auth/index.js';
 
 export function registerRoutes(app: Express) {
+  // ── Guest abuse / rate limiting (#57) ───────────────────────────────────────
+  // Coarse per-IP + per-session guards on the two unauthenticated, abuse-prone guest
+  // endpoints (request submit + catalog search). Authenticated DJ/org-admin routes are
+  // mounted WITHOUT these. No-ops when cfg.rateLimitEnabled is false (dev/tests).
+  const requestLimiter = cfg.rateLimitEnabled
+    ? guestRateLimit({
+        windowMs:   cfg.rateLimitWindowMs,
+        perIp:      cfg.rateLimitRequestPerIp,
+        perSession: cfg.rateLimitRequestPerSession,
+        name:       'request',
+      })
+    : null;
+  const searchLimiter = cfg.rateLimitEnabled
+    ? guestRateLimit({
+        windowMs:   cfg.rateLimitWindowMs,
+        perIp:      cfg.rateLimitSearchPerIp,
+        perSession: cfg.rateLimitSearchPerSession,
+        name:       'search',
+      })
+    : null;
+
   // ── Health ────────────────────────────────────────────────────────────────
   app.get('/api/health', async (_req, res) => {
     try {
@@ -71,7 +93,9 @@ export function registerRoutes(app: Express) {
 
   // ── Queue ─────────────────────────────────────────────────────────────────
   app.get('/api/events/:slug/queue', asyncHandler(getQueueHandler));
-  app.post('/api/events/:slug/requests', asyncHandler(createRequestHandler));
+  app.post('/api/events/:slug/requests',
+    ...(requestLimiter ? [requestLimiter] : []),
+    asyncHandler(createRequestHandler));
   // Public area roster for the guest jukebox area selector (#70).
   app.get('/api/events/:slug/areas', asyncHandler(listPublicAreasHandler));
 
@@ -79,7 +103,9 @@ export function registerRoutes(app: Express) {
   app.get('/api/events/:slug/stream', asyncHandler(streamHandler));
 
   // ── Tracks ────────────────────────────────────────────────────────────────
-  app.get('/api/tracks/search', asyncHandler(searchTracksHandler));
+  app.get('/api/tracks/search',
+    ...(searchLimiter ? [searchLimiter] : []),
+    asyncHandler(searchTracksHandler));
 
   // ── Credits ───────────────────────────────────────────────────────────────
   app.get('/api/credits/bundles', asyncHandler(getBundlesHandler));

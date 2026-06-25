@@ -55,5 +55,16 @@ export const cfg = {
   stripeConnectReturnUrl:  process.env.STRIPE_CONNECT_RETURN_URL ?? 'http://localhost:5173/connect/return',
   // Window (ms) during which a card refund may still be issued (O7). Default 30 days.
   refundWindowMs:          parseInt(process.env.REFUND_WINDOW_MS ?? String(30 * 24 * 60 * 60 * 1000), 10),
+  // ── Guest rate limiting (Epic 9 hardening, #57) ────────────────────────────
+  // Coarse per-IP + per-session abuse guard on guest request-submit and search.
+  // Off in development (so the dev loop + test suite aren't throttled), on otherwise.
+  // Override explicitly with RATE_LIMIT_ENABLED=true|false.
+  rateLimitEnabled:        (process.env.RATE_LIMIT_ENABLED
+                             ?? ((process.env.NODE_ENV ?? 'development') === 'development' ? 'false' : 'true')) === 'true',
+  rateLimitWindowMs:       parseInt(process.env.RATE_LIMIT_WINDOW_MS ?? '60000', 10),
+  rateLimitRequestPerIp:      parseInt(process.env.RATE_LIMIT_REQUEST_PER_IP ?? '60', 10),
+  rateLimitRequestPerSession: parseInt(process.env.RATE_LIMIT_REQUEST_PER_SESSION ?? '20', 10),
+  rateLimitSearchPerIp:       parseInt(process.env.RATE_LIMIT_SEARCH_PER_IP ?? '120', 10),
+  rateLimitSearchPerSession:  parseInt(process.env.RATE_LIMIT_SEARCH_PER_SESSION ?? '40', 10),
 } as const;
 
