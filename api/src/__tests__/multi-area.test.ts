@@ -120,11 +120,15 @@ beforeEach(resetState);
 describe('PA · per-area queue isolation (#70/#91)', () => {
   it('createArea provisioned an available Play Next slot for the new area', async () => {
     const rows = await db.query(
-      `SELECT status, event_id FROM play_next_slot WHERE area_id = $1`, [areaB],
+      `SELECT pns.status, pns.event_id, a.id AS area_id
+       FROM areas a
+       JOIN play_next_slot pns ON pns.area_id = a.id
+       WHERE a.id = $1`, [areaB],
     );
     expect(rows.rowCount).toBe(1);
     expect(rows.rows[0].status).toBe('available');
     expect(rows.rows[0].event_id).toBe(DEMO_EVENT);
+    expect(rows.rows[0].area_id).toBe(areaB);
   });
 
   it('public area roster returns the default area first', async () => {

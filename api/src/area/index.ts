@@ -66,19 +66,24 @@ export async function createAreaHandler(req: Request, res: Response) {
     sendError(res, 400, 'validation', 'name is required');
     return;
   }
-  const [created] = await db
-    .insert(areas)
-    .values({
-      eventId:        event.id,
-      organizationId: req.orgContext!.id,
-      name:           name.trim(),
-      isDefault:      false,
-    })
-    .returning({ id: areas.id, name: areas.name, isDefault: areas.isDefault });
-  // Every area owns its own Play Next slot (per-area queue, #70/#91).
-  await db.insert(playNextSlot)
-    .values({ eventId: event.id, areaId: created.id, status: 'available' })
-    .onConflictDoNothing({ target: playNextSlot.areaId });
+  const created = await db.transaction(async (tx) => {
+    const [area] = await tx
+      .insert(areas)
+      .values({
+        eventId:        event.id,
+        organizationId: req.orgContext!.id,
+        name:           name.trim(),
+        isDefault:      false,
+      })
+      .returning({ id: areas.id, name: areas.name, isDefault: areas.isDefault });
+
+    // Every area owns its own Play Next slot (per-area queue, #70/#91).
+    await tx.insert(playNextSlot)
+      .values({ eventId: event.id, areaId: area.id, status: 'available' })
+      .onConflictDoNothing({ target: playNextSlot.areaId });
+
+    return area;
+  });
   res.status(201).json({ area: created });
 }
 
