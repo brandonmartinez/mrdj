@@ -15,7 +15,7 @@ import { db, areas } from '../db/index.js';
 import { getEventBySlug } from '../event/index.js';
 import { sendError } from '../http/middleware.js';
 import {
-  InProcessRealtimeService, queueChannel, isQueueChannel,
+  InProcessRealtimeService, queueChannel,
   type RealtimeService, type QueueChangedEvent,
 } from './service.js';
 import { PgListenNotifyRealtimeService } from './pg-listen-notify.js';
@@ -38,11 +38,7 @@ export function publishQueueChanged(eventId: string, areaId: string): void {
  *  like admin credit grants, where a user's balance — shown in the queue view — changed). */
 export function publishAll(): void {
   const at = new Date().toISOString();
-  for (const name of realtime.channelNames()) {
-    if (isQueueChannel(name)) {
-      realtime.publish(name, { type: 'queue:changed', at });
-    }
-  }
+  realtime.broadcast({ type: 'queue:changed', at });
 }
 
 export async function disconnectRealtime(): Promise<void> {

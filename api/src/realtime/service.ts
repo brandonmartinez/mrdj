@@ -31,7 +31,9 @@ export interface RealtimeService {
   subscribe(channel: string, handler: (payload: QueueChangedEvent) => void): Unsubscribe;
   /** Publish an event to a channel's subscribers (and, in a NOTIFY impl, peer replicas). */
   publish(channel: string, payload: QueueChangedEvent): void;
-  /** Currently active channel names (used to fan a non-area-scoped change out to every stream). */
+  /** Broadcast an event to all queue channel subscribers (and, in a NOTIFY impl, peer replicas). */
+  broadcast(payload: QueueChangedEvent): void;
+  /** Currently active channel names. */
   channelNames(): string[];
   /** Release transport resources (timers, sockets, listeners). Safe to call once at shutdown. */
   disconnect(): Promise<void>;
@@ -79,6 +81,14 @@ export class InProcessRealtimeService implements RealtimeService {
 
   publish(channel: string, payload: QueueChangedEvent): void {
     this.bus.emit(channel, payload);
+  }
+
+  broadcast(payload: QueueChangedEvent): void {
+    for (const name of this.channelNames()) {
+      if (isQueueChannel(name)) {
+        this.bus.emit(name, payload);
+      }
+    }
   }
 
   channelNames(): string[] {

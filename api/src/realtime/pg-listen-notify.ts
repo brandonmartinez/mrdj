@@ -9,6 +9,7 @@ const QUEUE_CHANNEL_RE = new RegExp(`^queue:(${UUID}):(${UUID})$`);
 const PG_CHANNEL_RE = /^q_[a-f0-9]{48}$/;
 const INITIAL_RECONNECT_MS = 500;
 const MAX_RECONNECT_MS = 30_000;
+const BROADCAST_LOGICAL_CHANNEL = 'queue:broadcast';
 
 type Handler = (payload: QueueChangedEvent) => void;
 
@@ -20,10 +21,16 @@ function parseQueueChannel(channel: string): { eventId: string; areaId: string }
   return { eventId: match[1].toLowerCase(), areaId: match[2].toLowerCase() };
 }
 
-function pgChannelFor(logicalChannel: string): string {
-  parseQueueChannel(logicalChannel);
+function hashedPgChannel(logicalChannel: string): string {
   return `q_${createHash('sha256').update(logicalChannel).digest('hex').slice(0, 48)}`;
 }
+
+function pgChannelFor(logicalChannel: string): string {
+  parseQueueChannel(logicalChannel);
+  return hashedPgChannel(logicalChannel);
+}
+
+const BROADCAST_PG_CHANNEL = hashedPgChannel(BROADCAST_LOGICAL_CHANNEL);
 
 function quoteIdentifier(identifier: string): string {
   if (!PG_CHANNEL_RE.test(identifier)) {
@@ -47,6 +54,7 @@ export class PgListenNotifyRealtimeService implements RealtimeService {
   private readonly handlers = new Map<string, Set<Handler>>();
   private readonly pgChannels = new Map<string, Set<string>>();
   private readonly listenPromises = new Map<string, Promise<void>>();
+  private subscriberCount = 0;
 
   constructor(private readonly connectionString = cfg.realtimeDatabaseUrl) {}
 
@@ -59,6 +67,13 @@ export class PgListenNotifyRealtimeService implements RealtimeService {
       this.handlers.set(logicalChannel, handlers);
     }
     handlers.add(handler);
+    if (this.subscriberCount === 0) {
+      void this.listen(BROADCAST_PG_CHANNEL).catch(err => {
+        console.error('[realtime] broadcast LISTEN failed:', err instanceof Error ? err.message : err);
+        this.scheduleReconnect();
+      });
+    }
+    this.subscriberCount += 1;
 
     let logicals = this.pgChannels.get(pgChannel);
     const wasListening = !!logicals?.size;
@@ -99,6 +114,15 @@ export class PgListenNotifyRealtimeService implements RealtimeService {
       });
   }
 
+  broadcast(payload: QueueChangedEvent): void {
+    void this.ensureClient()
+      .then(client => client.query('SELECT pg_notify($1, $2)', [BROADCAST_PG_CHANNEL, JSON.stringify(payload)]))
+      .catch(err => {
+        console.error('[realtime] broadcast NOTIFY failed:', err instanceof Error ? err.message : err);
+        this.scheduleReconnect();
+      });
+  }
+
   channelNames(): string[] {
     return [...this.handlers.keys()];
   }
@@ -115,6 +139,7 @@ export class PgListenNotifyRealtimeService implements RealtimeService {
     this.listenPromises.clear();
     this.handlers.clear();
     this.pgChannels.clear();
+    this.subscriberCount = 0;
     if (!client) return;
     client.removeAllListeners();
     try {
@@ -128,10 +153,13 @@ export class PgListenNotifyRealtimeService implements RealtimeService {
   /** Test/diagnostic hook: resolves after the current subscribed channels have been LISTENed. */
   async waitUntilListening(channel?: string): Promise<void> {
     if (channel) {
-      await this.listen(pgChannelFor(this.validateLogicalChannel(channel)));
+      await Promise.all([
+        this.listen(pgChannelFor(this.validateLogicalChannel(channel))),
+        this.subscriberCount > 0 ? this.listen(BROADCAST_PG_CHANNEL) : Promise.resolve(),
+      ]);
       return;
     }
-    await Promise.all([...this.pgChannels.keys()].map(pgChannel => this.listen(pgChannel)));
+    await Promise.all(this.listenChannels().map(pgChannel => this.listen(pgChannel)));
   }
 
   private validateLogicalChannel(channel: string): string {
@@ -153,6 +181,10 @@ export class PgListenNotifyRealtimeService implements RealtimeService {
         this.pgChannels.delete(pgChannel);
         void this.unlisten(pgChannel);
       }
+    }
+    this.subscriberCount = Math.max(0, this.subscriberCount - 1);
+    if (this.subscriberCount === 0) {
+      void this.unlisten(BROADCAST_PG_CHANNEL);
     }
   }
 
@@ -221,6 +253,11 @@ export class PgListenNotifyRealtimeService implements RealtimeService {
       return;
     }
 
+    if (pgChannel === BROADCAST_PG_CHANNEL) {
+      this.fanOutToAllLocalHandlers(payload);
+      return;
+    }
+
     const logicalChannels = this.logicalChannelsForNotification(pgChannel, payload);
     for (const logicalChannel of logicalChannels) {
       const handlers = this.handlers.get(logicalChannel);
@@ -253,7 +290,7 @@ export class PgListenNotifyRealtimeService implements RealtimeService {
   }
 
   private scheduleReconnect(): void {
-    if (this.stopped || this.reconnectTimer || this.pgChannels.size === 0) return;
+    if (this.stopped || this.reconnectTimer || this.subscriberCount === 0) return;
     const base = Math.min(INITIAL_RECONNECT_MS * 2 ** this.reconnectAttempts, MAX_RECONNECT_MS);
     const jitter = Math.floor(Math.random() * Math.min(250, base));
     this.reconnectAttempts += 1;
@@ -264,15 +301,33 @@ export class PgListenNotifyRealtimeService implements RealtimeService {
   }
 
   private async reconnect(): Promise<void> {
-    if (this.stopped || this.pgChannels.size === 0) return;
+    if (this.stopped || this.subscriberCount === 0) return;
     try {
       await this.ensureClient();
-      await Promise.all([...this.pgChannels.keys()].map(pgChannel => this.listen(pgChannel)));
+      await Promise.all(this.listenChannels().map(pgChannel => this.listen(pgChannel)));
       this.reconnectAttempts = 0;
       this.rebroadcastLocalSubscribers();
     } catch (err) {
       console.error('[realtime] reconnect failed:', err instanceof Error ? err.message : err);
       this.scheduleReconnect();
+    }
+  }
+
+  private listenChannels(): string[] {
+    return this.subscriberCount > 0
+      ? [BROADCAST_PG_CHANNEL, ...this.pgChannels.keys()]
+      : [...this.pgChannels.keys()];
+  }
+
+  private fanOutToAllLocalHandlers(payload: QueueChangedEvent): void {
+    for (const handlers of this.handlers.values()) {
+      for (const handler of [...handlers]) {
+        try {
+          handler(payload);
+        } catch (err) {
+          console.error('[realtime] broadcast subscriber handler failed:', err instanceof Error ? err.message : err);
+        }
+      }
     }
   }
 
