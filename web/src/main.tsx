@@ -4,15 +4,18 @@ import { BrowserRouter } from 'react-router-dom';
 import App from './App.tsx';
 import { ThemeProvider } from './context/theme.tsx';
 import { SessionProvider } from './context/session.tsx';
+import { ErrorBoundary } from './components/ErrorBoundary.tsx';
 import './index.css';
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
     <ThemeProvider>
       <BrowserRouter>
-        <SessionProvider>
-          <App />
-        </SessionProvider>
+        <ErrorBoundary title="mrdj hit a snag">
+          <SessionProvider>
+            <App />
+          </SessionProvider>
+        </ErrorBoundary>
       </BrowserRouter>
     </ThemeProvider>
   </React.StrictMode>,

@@ -13,6 +13,11 @@ import DJConsole from './pages/DJConsole';
 import Members from './pages/Members';
 import Pricing from './pages/Pricing';
 import Earnings from './pages/Earnings';
+import { ErrorBoundary } from './components/ErrorBoundary';
+
+function RouteBoundary({ children }: { children: ReactNode }) {
+  return <ErrorBoundary title="This page hit a snag">{children}</ErrorBoundary>;
+}
 
 function Centered({ children }: { children: ReactNode }) {
   return (
@@ -54,25 +59,25 @@ export default function App() {
   return (
     <Routes>
       <Route path="/" element={<RootRedirect />} />
-      <Route path="/login" element={<Login />} />
-      <Route path="/onboarding" element={<RequireAuth><Onboarding /></RequireAuth>} />
+      <Route path="/login" element={<RouteBoundary><Login /></RouteBoundary>} />
+      <Route path="/onboarding" element={<RequireAuth><RouteBoundary><Onboarding /></RouteBoundary></RequireAuth>} />
 
       {/* Public guest jukebox + org landing — live outside the management shell. */}
-      <Route path="/o/:orgSlug/events/:eventSlug" element={<GuestJukebox />} />
-      <Route path="/o/:orgSlug" element={<OrgLanding />} />
+      <Route path="/o/:orgSlug/events/:eventSlug" element={<RouteBoundary><GuestJukebox /></RouteBoundary>} />
+      <Route path="/o/:orgSlug" element={<RouteBoundary><OrgLanding /></RouteBoundary>} />
 
       {/* Org management shell. */}
       <Route
         path="/o/:orgSlug"
         element={<RequireAuth><OrgShell /></RequireAuth>}
       >
-        <Route path="dashboard" element={<OrgDashboard />} />
-        <Route path="events" element={<EventsList />} />
-        <Route path="events/:eventSlug/manage" element={<EventManage />} />
-        <Route path="events/:eventSlug/console" element={<DJConsole />} />
-        <Route path="members" element={<Members />} />
-        <Route path="pricing" element={<Pricing />} />
-        <Route path="earnings" element={<Earnings />} />
+        <Route path="dashboard" element={<RouteBoundary><OrgDashboard /></RouteBoundary>} />
+        <Route path="events" element={<RouteBoundary><EventsList /></RouteBoundary>} />
+        <Route path="events/:eventSlug/manage" element={<RouteBoundary><EventManage /></RouteBoundary>} />
+        <Route path="events/:eventSlug/console" element={<RouteBoundary><DJConsole /></RouteBoundary>} />
+        <Route path="members" element={<RouteBoundary><Members /></RouteBoundary>} />
+        <Route path="pricing" element={<RouteBoundary><Pricing /></RouteBoundary>} />
+        <Route path="earnings" element={<RouteBoundary><Earnings /></RouteBoundary>} />
       </Route>
 
       <Route path="*" element={<NotFound />} />
