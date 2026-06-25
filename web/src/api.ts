@@ -122,7 +122,6 @@ function shouldHandleUnauthorized(path: string) {
   if (path.includes('/public')) return false;
   if (path.startsWith('/api/admin/')) return true;
   if (path.startsWith('/api/me/orgs')) return true;
-  if (path.startsWith('/api/orgs/')) return true;
   return typeof window !== 'undefined' && isProtectedBrowserPath(window.location.pathname);
 }
 
