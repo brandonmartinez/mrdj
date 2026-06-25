@@ -3,7 +3,7 @@ import type { Request, Response } from 'express';
 import { and, asc, desc, eq, gt, gte, inArray, sql } from 'drizzle-orm';
 import {
   db, pgErrorCode,
-  queueItems, tracks, playNextSlot, pricingConfig, wallets, creditTransactions, events,
+  queueItems, tracks, playNextSlot, pricingConfig, wallets, creditTransactions, events, areas,
 } from '../db/index.js';
 import { getEventBySlug } from '../event/index.js';
 import { sendError } from '../http/middleware.js';
@@ -49,6 +49,7 @@ export interface PlayNextState {
 }
 
 export interface QueueView {
+  areaId:        string;
   nowPlaying:    QueueItem | null;
   previous:      QueueItem[];
   upcoming:      QueueItem[];
@@ -114,12 +115,30 @@ async function fetchBalance(userId: string, organizationId: string): Promise<num
   return row?.balance ?? 0;
 }
 
+/**
+ * Resolve the target Area for a queue operation. When an explicit areaId is given it must
+ * belong to the event (else 404 via QueueError); when omitted, the event's default Area is
+ * used. Default-area fallback keeps single-area events (and all legacy callers) unchanged.
+ */
+async function resolveAreaId(eventId: string, areaId?: string | null): Promise<string> {
+  if (areaId) {
+    const [row] = await db.select({ id: areas.id }).from(areas)
+      .where(and(eq(areas.id, areaId), eq(areas.eventId, eventId))).limit(1);
+    if (!row) throw new QueueError('not_found', 'Area not found in this event', 404);
+    return row.id;
+  }
+  const [def] = await db.select({ id: areas.id }).from(areas)
+    .where(and(eq(areas.eventId, eventId), eq(areas.isDefault, true))).limit(1);
+  if (!def) throw new QueueError('not_found', 'Event has no default area', 404);
+  return def.id;
+}
+
 // ── buildQueueView — shared helper ───────────────────────────────────────────
 // Used by getQueueHandler, createRequestHandler, advanceQueue, removeQueueItem,
 // and reorderQueueItem. Always reads via the pool (callers invoke it AFTER their
 // own transaction has committed), so it takes no executor.
 
-export async function buildQueueView(eventId: string, userId: string): Promise<QueueView> {
+export async function buildQueueView(eventId: string, userId: string, areaId?: string): Promise<QueueView> {
   // The event determines the tenant: pricing and the viewer's wallet balance are both
   // organization-scoped (O8), so resolve the org once and filter every read by it.
   const [evt] = await db
@@ -129,17 +148,20 @@ export async function buildQueueView(eventId: string, userId: string): Promise<Q
     .limit(1);
   const organizationId = evt?.organizationId ?? null;
 
+  // Per-area scope: queue items + Play Next slot are read for one Area (default when omitted).
+  const resolvedAreaId = await resolveAreaId(eventId, areaId);
+
   const [nowRows, prevRows, upcomingRows, pnsRows, pricingRows, walletRows] = await Promise.all([
     db.select(QUEUE_ITEM_COLS).from(queueItems).innerJoin(tracks, eq(tracks.id, queueItems.trackId))
-      .where(and(eq(queueItems.eventId, eventId), eq(queueItems.status, 'playing'))).limit(1),
+      .where(and(eq(queueItems.areaId, resolvedAreaId), eq(queueItems.status, 'playing'))).limit(1),
     db.select(QUEUE_ITEM_COLS).from(queueItems).innerJoin(tracks, eq(tracks.id, queueItems.trackId))
-      .where(and(eq(queueItems.eventId, eventId), eq(queueItems.status, 'played')))
+      .where(and(eq(queueItems.areaId, resolvedAreaId), eq(queueItems.status, 'played')))
       .orderBy(desc(queueItems.updatedAt)).limit(20),
     db.select(QUEUE_ITEM_COLS).from(queueItems).innerJoin(tracks, eq(tracks.id, queueItems.trackId))
-      .where(and(eq(queueItems.eventId, eventId), eq(queueItems.status, 'pending')))
+      .where(and(eq(queueItems.areaId, resolvedAreaId), eq(queueItems.status, 'pending')))
       .orderBy(asc(queueItems.position)),
     db.select({ status: playNextSlot.status, holderQueueItemId: playNextSlot.holderQueueItemId })
-      .from(playNextSlot).where(eq(playNextSlot.eventId, eventId)),
+      .from(playNextSlot).where(eq(playNextSlot.areaId, resolvedAreaId)),
     organizationId
       ? db.select({ key: pricingConfig.key, value: pricingConfig.value })
           .from(pricingConfig)
@@ -163,6 +185,7 @@ export async function buildQueueView(eventId: string, userId: string): Promise<Q
 
   const pns = pnsRows[0];
   return {
+    areaId:     resolvedAreaId,
     nowPlaying: nowRows[0] ? rowToQueueItem(nowRows[0]) : null,
     previous:   prevRows.map(rowToQueueItem),
     upcoming:   upcomingRows.map(rowToQueueItem),
@@ -181,6 +204,7 @@ export async function buildQueueView(eventId: string, userId: string): Promise<Q
 export async function getQueueHandler(req: Request, res: Response) {
   const { slug } = req.params;
   const userId = req.session.userId!;
+  const areaId = typeof req.query.areaId === 'string' ? req.query.areaId : undefined;
 
   const event = await getEventBySlug(slug);
   if (!event) {
@@ -188,8 +212,16 @@ export async function getQueueHandler(req: Request, res: Response) {
     return;
   }
 
-  const view = await buildQueueView(event.id, userId);
-  res.json(view);
+  try {
+    const view = await buildQueueView(event.id, userId, areaId);
+    res.json(view);
+  } catch (err) {
+    if (err instanceof QueueError) {
+      sendError(res, err.status, err.code, err.message);
+      return;
+    }
+    throw err;
+  }
 }
 
 // ── POST /api/events/:slug/requests ──────────────────────────────────────────
@@ -198,6 +230,7 @@ export interface CreateRequestBody {
   trackId:        string;
   tier:           'queue' | 'boost' | 'play_next';
   idempotencyKey: string;
+  areaId?:        string;
 }
 
 /**
@@ -218,7 +251,7 @@ export async function createRequestHandler(req: Request, res: Response) {
 
   // ── Input validation ──────────────────────────────────────────────────────
   const body = req.body as Partial<CreateRequestBody>;
-  const { trackId, tier, idempotencyKey } = body;
+  const { trackId, tier, idempotencyKey, areaId } = body;
 
   if (!trackId || !tier || !idempotencyKey) {
     sendError(res, 400, 'validation', 'trackId, tier, and idempotencyKey are required');
@@ -234,6 +267,18 @@ export async function createRequestHandler(req: Request, res: Response) {
   if (!event) {
     sendError(res, 404, 'not_found', `Event '${slug}' not found`);
     return;
+  }
+
+  // ── Resolve target Area (per-area queue; default area when unspecified) ─────
+  let targetAreaId: string;
+  try {
+    targetAreaId = await resolveAreaId(event.id, areaId);
+  } catch (err) {
+    if (err instanceof QueueError) {
+      sendError(res, err.status, err.code, err.message);
+      return;
+    }
+    throw err;
   }
 
   // ── Verify track exists (before opening transaction) ─────────────────────
@@ -269,7 +314,7 @@ export async function createRequestHandler(req: Request, res: Response) {
       // FOR UPDATE serialises concurrent play_next purchases; held until COMMIT/ROLLBACK.
       if (tier === 'play_next') {
         await tx.select({ status: playNextSlot.status })
-          .from(playNextSlot).where(eq(playNextSlot.eventId, event.id)).for('update');
+          .from(playNextSlot).where(eq(playNextSlot.areaId, targetAreaId)).for('update');
       }
 
       // ── Idempotency: same key → return original result, no second charge ──
@@ -285,7 +330,7 @@ export async function createRequestHandler(req: Request, res: Response) {
       // ── Play Next: verify slot is available (lock already held) ───────────
       if (tier === 'play_next') {
         const [slot] = await tx.select({ status: playNextSlot.status })
-          .from(playNextSlot).where(eq(playNextSlot.eventId, event.id));
+          .from(playNextSlot).where(eq(playNextSlot.areaId, targetAreaId));
         if (!slot || slot.status !== 'available') {
           return { kind: 'play_next_unavailable' as const };
         }
@@ -309,7 +354,7 @@ export async function createRequestHandler(req: Request, res: Response) {
         // Shift all pending items down to free position 1
         await tx.update(queueItems)
           .set({ position: sql`${queueItems.position} + 1` })
-          .where(and(eq(queueItems.eventId, event.id), eq(queueItems.status, 'pending')));
+          .where(and(eq(queueItems.areaId, targetAreaId), eq(queueItems.status, 'pending')));
         insertPosition = 1;
         isPlayNext     = true;
 
@@ -317,14 +362,14 @@ export async function createRequestHandler(req: Request, res: Response) {
         // Boost target: position 2 if play_next is locked (so we can't jump the holder),
         // position 1 otherwise (front of the normal queue).
         const [slot] = await tx.select({ status: playNextSlot.status })
-          .from(playNextSlot).where(eq(playNextSlot.eventId, event.id));
+          .from(playNextSlot).where(eq(playNextSlot.areaId, targetAreaId));
         const playNextLocked = slot?.status === 'locked';
         insertPosition = playNextLocked ? 2 : 1;
 
         await tx.update(queueItems)
           .set({ position: sql`${queueItems.position} + 1` })
           .where(and(
-            eq(queueItems.eventId, event.id),
+            eq(queueItems.areaId, targetAreaId),
             eq(queueItems.status, 'pending'),
             gte(queueItems.position, insertPosition),
           ));
@@ -334,7 +379,7 @@ export async function createRequestHandler(req: Request, res: Response) {
         const [maxRow] = await tx
           .select({ maxPos: sql<number>`COALESCE(MAX(${queueItems.position}), 0)` })
           .from(queueItems)
-          .where(and(eq(queueItems.eventId, event.id), eq(queueItems.status, 'pending')));
+          .where(and(eq(queueItems.areaId, targetAreaId), eq(queueItems.status, 'pending')));
         insertPosition = (maxRow?.maxPos ?? 0) + 1;
       }
 
@@ -342,7 +387,7 @@ export async function createRequestHandler(req: Request, res: Response) {
       const [inserted] = await tx.insert(queueItems)
         .values({
           eventId:     event.id,
-          areaId:      event.default_area_id,
+          areaId:      targetAreaId,
           trackId,
           requesterId: userId,
           position:    insertPosition,
@@ -376,7 +421,7 @@ export async function createRequestHandler(req: Request, res: Response) {
       if (tier === 'play_next') {
         await tx.update(playNextSlot)
           .set({ status: 'locked', holderQueueItemId: queueItemId, lockedAt: sql`now()` })
-          .where(eq(playNextSlot.eventId, event.id));
+          .where(eq(playNextSlot.areaId, targetAreaId));
       }
 
       return { kind: 'created' as const, queueItemId };
@@ -386,7 +431,7 @@ export async function createRequestHandler(req: Request, res: Response) {
     if (result.kind === 'idempotent') {
       const [queueItem, queueView, creditBalance] = await Promise.all([
         fetchQueueItem(result.queueItemId),
-        buildQueueView(event.id, userId),
+        buildQueueView(event.id, userId, targetAreaId),
         fetchBalance(userId, event.organization_id),
       ]);
       res.json({
@@ -411,10 +456,10 @@ export async function createRequestHandler(req: Request, res: Response) {
     }
 
     // result.kind === 'created'
-    publishQueueChanged(event.id);
+    publishQueueChanged(event.id, targetAreaId);
     const [queueItemFull, queueView, creditBalance] = await Promise.all([
       fetchQueueItem(result.queueItemId),
-      buildQueueView(event.id, userId),
+      buildQueueView(event.id, userId, targetAreaId),
       fetchBalance(userId, event.organization_id),
     ]);
     res.status(201).json({
@@ -439,7 +484,7 @@ export async function createRequestHandler(req: Request, res: Response) {
         if (existingTx) {
           const [queueItem, queueView, creditBalance] = await Promise.all([
             fetchQueueItem(existingTx.referenceId as string),
-            buildQueueView(event.id, userId),
+            buildQueueView(event.id, userId, targetAreaId),
             fetchBalance(userId, event.organization_id),
           ]);
           res.status(200).json({
@@ -485,12 +530,13 @@ export async function createRequestHandler(req: Request, res: Response) {
  *
  * Returns the updated QueueView.
  */
-export async function advanceQueue(eventId: string, userId: string): Promise<QueueView> {
+export async function advanceQueue(eventId: string, userId: string, areaId?: string): Promise<QueueView> {
+  const targetAreaId = await resolveAreaId(eventId, areaId);
   await db.transaction(async (tx) => {
     // Mark current now-playing as played
     await tx.update(queueItems)
       .set({ status: 'played', updatedAt: sql`now()` })
-      .where(and(eq(queueItems.eventId, eventId), eq(queueItems.status, 'playing')));
+      .where(and(eq(queueItems.areaId, targetAreaId), eq(queueItems.status, 'playing')));
 
     // Promote the next pending item (play_next holder is at position 1, otherwise min position).
     // FOR UPDATE so a concurrent removeQueueItem — which locks the row, rejects it, and refunds
@@ -502,7 +548,7 @@ export async function advanceQueue(eventId: string, userId: string): Promise<Que
     const [next] = await tx
       .select({ id: queueItems.id })
       .from(queueItems)
-      .where(and(eq(queueItems.eventId, eventId), eq(queueItems.status, 'pending')))
+      .where(and(eq(queueItems.areaId, targetAreaId), eq(queueItems.status, 'pending')))
       .orderBy(asc(queueItems.position))
       .limit(1)
       .for('update');
@@ -516,11 +562,11 @@ export async function advanceQueue(eventId: string, userId: string): Promise<Que
     // Reset Play Next slot — no refund (D6 decision)
     await tx.update(playNextSlot)
       .set({ status: 'available', holderQueueItemId: null, resetAt: sql`now()` })
-      .where(eq(playNextSlot.eventId, eventId));
+      .where(eq(playNextSlot.areaId, targetAreaId));
   });
 
-  publishQueueChanged(eventId);
-  return buildQueueView(eventId, userId);
+  publishQueueChanged(eventId, targetAreaId);
+  return buildQueueView(eventId, userId, targetAreaId);
 }
 
 // ── removeQueueItem — admin remove/reject with O7 auto-refund ─────────────────
@@ -544,10 +590,11 @@ export async function removeQueueItem(
   queueItemId: string,
   adminUserId: string,
 ): Promise<RemoveResult> {
-  const refund = await db.transaction(async (tx) => {
+  const result = await db.transaction(async (tx) => {
     const [item] = await tx
       .select({
         id:          queueItems.id,
+        areaId:      queueItems.areaId,
         status:      queueItems.status,
         isPlayNext:  queueItems.isPlayNext,
         requesterId: queueItems.requesterId,
@@ -581,11 +628,11 @@ export async function removeQueueItem(
       .set({ status: 'rejected', isPlayNext: false, position: 0, updatedAt: sql`now()` })
       .where(eq(queueItems.id, queueItemId));
 
-    // Recompact remaining pending positions (Play Next holder pinned first).
+    // Recompact remaining pending positions within the area (Play Next holder pinned first).
     await tx.execute(sql`
       WITH ordered AS (
         SELECT id, ROW_NUMBER() OVER (ORDER BY is_play_next DESC, position ASC) AS rn
-        FROM queue_items WHERE event_id = ${eventId} AND status = 'pending'
+        FROM queue_items WHERE area_id = ${item.areaId} AND status = 'pending'
       )
       UPDATE queue_items qi SET position = o.rn FROM ordered o WHERE qi.id = o.id
     `);
@@ -594,11 +641,12 @@ export async function removeQueueItem(
     if (item.isPlayNext) {
       await tx.update(playNextSlot)
         .set({ status: 'available', holderQueueItemId: null, resetAt: sql`now()` })
-        .where(eq(playNextSlot.eventId, eventId));
+        .where(eq(playNextSlot.areaId, item.areaId));
     }
 
     // O7 auto-refund (only for paid, unplayed items). Enlists in this transaction so the
     // refund ledger row + wallet credit are atomic with the rejection.
+    let refund: { userId: string; amount: number } | null = null;
     if (spendAmount > 0) {
       await refundCredits(
         item.requesterId,
@@ -610,14 +658,14 @@ export async function removeQueueItem(
         adminUserId,
         tx,
       );
-      return { userId: item.requesterId, amount: spendAmount };
+      refund = { userId: item.requesterId, amount: spendAmount };
     }
-    return null;
+    return { areaId: item.areaId, refund };
   });
 
-  publishQueueChanged(eventId);
-  const queueView = await buildQueueView(eventId, adminUserId);
-  return { queueView, refund };
+  publishQueueChanged(eventId, result.areaId);
+  const queueView = await buildQueueView(eventId, adminUserId, result.areaId);
+  return { queueView, refund: result.refund };
 }
 
 // ── reorderQueueItem — admin nudge a pending item up/down ─────────────────────
@@ -638,10 +686,21 @@ export async function reorderQueueItem(
   }
 
   const outcome = await db.transaction(async (tx) => {
+    // Resolve the target's area first so the whole reorder stays within one area's queue.
+    const [target0] = await tx
+      .select({ areaId: queueItems.areaId })
+      .from(queueItems)
+      .where(and(eq(queueItems.id, queueItemId), eq(queueItems.eventId, eventId)))
+      .limit(1);
+    if (!target0) {
+      throw new QueueError('not_found', 'Pending queue item not found', 404);
+    }
+    const reorderAreaId = target0.areaId;
+
     const items = await tx
       .select({ id: queueItems.id, position: queueItems.position, isPlayNext: queueItems.isPlayNext })
       .from(queueItems)
-      .where(and(eq(queueItems.eventId, eventId), eq(queueItems.status, 'pending')))
+      .where(and(eq(queueItems.areaId, reorderAreaId), eq(queueItems.status, 'pending')))
       .orderBy(asc(queueItems.position))
       .for('update');
 
@@ -657,7 +716,7 @@ export async function reorderQueueItem(
 
     const neighborIdx = direction === 'up' ? idx - 1 : idx + 1;
     if (neighborIdx < 0 || neighborIdx >= items.length) {
-      return 'noop' as const; // already at the edge — no-op (nothing written)
+      return { kind: 'noop' as const, areaId: reorderAreaId }; // already at the edge — no-op
     }
 
     const neighbor = items[neighborIdx];
@@ -672,11 +731,11 @@ export async function reorderQueueItem(
       .set({ position: target.position, updatedAt: sql`now()` })
       .where(eq(queueItems.id, neighbor.id));
 
-    return 'swapped' as const;
+    return { kind: 'swapped' as const, areaId: reorderAreaId };
   });
 
-  if (outcome === 'swapped') publishQueueChanged(eventId);
-  return buildQueueView(eventId, adminUserId);
+  if (outcome.kind === 'swapped') publishQueueChanged(eventId, outcome.areaId);
+  return buildQueueView(eventId, adminUserId, outcome.areaId);
 }
 
 // ── eventStats — simple aggregates for the DJ console ─────────────────────────
@@ -713,7 +772,11 @@ export async function getEventStats(eventId: string): Promise<EventStats> {
       FROM credit_transactions ct
       JOIN queue_items qi ON qi.id = ct.reference_id
       WHERE qi.event_id = ${eventId} AND ct.type = 'refund'`),
-    db.execute(sql`SELECT status FROM play_next_slot WHERE event_id = ${eventId}`),
+    db.execute(sql`
+      SELECT pns.status FROM play_next_slot pns
+      JOIN areas a ON a.id = pns.area_id
+      WHERE pns.event_id = ${eventId}
+      ORDER BY a.is_default DESC LIMIT 1`),
     db.execute(sql`
       SELECT COUNT(*) AS purchased
       FROM credit_transactions ct

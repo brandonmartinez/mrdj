@@ -18,6 +18,7 @@ export function useQueueStream(
   slug: string,
   onUpdate: (view: QueueView) => void,
   fallbackMs = 15_000,
+  areaId?: string,
 ) {
   const lastData = useRef<string>('');
   const onUpdateRef = useRef(onUpdate);
@@ -25,7 +26,7 @@ export function useQueueStream(
 
   const fetchQueue = useCallback(async () => {
     try {
-      const data = await api.queue(slug);
+      const data = await api.queue(slug, areaId);
       const serialized = JSON.stringify(data);
       if (serialized !== lastData.current) {
         lastData.current = serialized;
@@ -34,14 +35,16 @@ export function useQueueStream(
     } catch {
       // Ignore transient fetch errors; the next signal or fallback tick retries.
     }
-  }, [slug]);
+  }, [slug, areaId]);
 
   useEffect(() => {
-    // Prime once on mount/slug change.
+    // Switching area is a fresh view — drop the dedup cache so the first fetch always fires.
+    lastData.current = '';
+    // Prime once on mount/slug/area change.
     void fetchQueue();
 
-    // SSE: re-fetch on every queue:changed signal.
-    const es = new EventSource(api.streamUrl(slug), { withCredentials: true });
+    // SSE: re-fetch on every queue:changed signal for this area's channel.
+    const es = new EventSource(api.streamUrl(slug, areaId), { withCredentials: true });
     const onSignal = () => { void fetchQueue(); };
     es.addEventListener('queue', onSignal);
 
@@ -53,5 +56,5 @@ export function useQueueStream(
       es.close();
       clearInterval(fallback);
     };
-  }, [fetchQueue, slug, fallbackMs]);
+  }, [fetchQueue, slug, fallbackMs, areaId]);
 }

@@ -37,7 +37,7 @@ import {
   listEventsHandler, getEventHandler, createEventHandler, updateEventHandler,
 } from '../event/handlers.js';
 import {
-  listAreasHandler, createAreaHandler, updateAreaHandler, deleteAreaHandler,
+  listAreasHandler, createAreaHandler, updateAreaHandler, deleteAreaHandler, listPublicAreasHandler,
 } from '../area/index.js';
 import { loginStartHandler, authCallbackHandler, logoutHandler } from '../auth/index.js';
 
@@ -72,6 +72,8 @@ export function registerRoutes(app: Express) {
   // ── Queue ─────────────────────────────────────────────────────────────────
   app.get('/api/events/:slug/queue', asyncHandler(getQueueHandler));
   app.post('/api/events/:slug/requests', asyncHandler(createRequestHandler));
+  // Public area roster for the guest jukebox area selector (#70).
+  app.get('/api/events/:slug/areas', asyncHandler(listPublicAreasHandler));
 
   // ── Realtime (SSE) — invalidation signal; clients re-fetch their per-user view ──
   app.get('/api/events/:slug/stream', asyncHandler(streamHandler));

@@ -1,11 +1,11 @@
 // Owner: Rusty (Area management HTTP handlers — Epic 2, #74)
 //
-// Areas are Event subdivisions (zones/stages). MVP scope: area metadata CRUD only.
-// The live queue + Play Next slot still operate on each Event's default Area
-// (play_next_slot is keyed per-event today); per-area queue routing is future work.
+// Areas are Event subdivisions (zones/stages). Each Area owns an independent queue +
+// Play Next slot (play_next_slot is keyed per-area). New areas get a slot on creation.
 import type { Request, Response } from 'express';
-import { and, eq, sql } from 'drizzle-orm';
-import { db, forOrg, areas, events, queueItems } from '../db/index.js';
+import { and, eq, sql, desc } from 'drizzle-orm';
+import { db, forOrg, areas, events, queueItems, playNextSlot } from '../db/index.js';
+import { getEventBySlug } from '../event/index.js';
 import { sendError } from '../http/middleware.js';
 
 /** Resolve `:eventSlug` within the request's org scope (cross-tenant → 404). */
@@ -21,6 +21,22 @@ async function loadScopedEvent(req: Request, res: Response): Promise<{ id: strin
     return null;
   }
   return event;
+}
+
+/** GET /api/events/:slug/areas — PUBLIC area list for the guest jukebox (no auth).
+ *  Guests need the area roster to choose which Area's queue they're interacting with. */
+export async function listPublicAreasHandler(req: Request, res: Response) {
+  const event = await getEventBySlug(req.params.slug);
+  if (!event) {
+    sendError(res, 404, 'not_found', `Event '${req.params.slug}' not found`);
+    return;
+  }
+  const rows = await db
+    .select({ id: areas.id, name: areas.name, isDefault: areas.isDefault })
+    .from(areas)
+    .where(eq(areas.eventId, event.id))
+    .orderBy(desc(areas.isDefault), areas.createdAt);
+  res.json({ areas: rows });
 }
 
 /** GET …/events/:eventSlug/areas — list this event's areas (org-scoped). */
@@ -59,6 +75,10 @@ export async function createAreaHandler(req: Request, res: Response) {
       isDefault:      false,
     })
     .returning({ id: areas.id, name: areas.name, isDefault: areas.isDefault });
+  // Every area owns its own Play Next slot (per-area queue, #70/#91).
+  await db.insert(playNextSlot)
+    .values({ eventId: event.id, areaId: created.id, status: 'available' })
+    .onConflictDoNothing({ target: playNextSlot.areaId });
   res.status(201).json({ area: created });
 }
 

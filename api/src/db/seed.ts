@@ -167,12 +167,12 @@ async function seed() {
         })),
       ).onConflictDoNothing({ target: queueItems.id });
 
-      // Play Next slot — available on boot
+      // Play Next slot — available on boot (one per area)
       await tx.insert(playNextSlot).values({
         eventId: IDS.demoEvent,
         areaId:  IDS.demoArea,
         status:  'available',
-      }).onConflictDoNothing({ target: playNextSlot.eventId });
+      }).onConflictDoNothing({ target: playNextSlot.areaId });
 
       // Wallets: guest=2 credits (free Add works, Boost=1 works once, Play Next=3 → triggers buy-more)
       await tx.insert(wallets).values([

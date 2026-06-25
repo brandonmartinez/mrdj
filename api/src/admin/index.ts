@@ -148,6 +148,7 @@ export async function adminStatsHandler(req: Request, res: Response) {
 // Requires admin role (enforced in routes.ts via requireAdmin middleware).
 export async function adminAdvanceHandler(req: Request, res: Response) {
   const { slug } = req.params;
+  const areaId = typeof req.body?.areaId === 'string' ? req.body.areaId : undefined;
 
   const event = await getEventBySlug(slug);
   if (!event) {
@@ -156,7 +157,14 @@ export async function adminAdvanceHandler(req: Request, res: Response) {
   }
 
   const userId   = req.session.userId!;
-  const queueView = await advanceQueue(event.id, userId);
-
-  res.json({ queueView });
+  try {
+    const queueView = await advanceQueue(event.id, userId, areaId);
+    res.json({ queueView });
+  } catch (err) {
+    if (err instanceof QueueError) {
+      sendError(res, err.status, err.code, err.message);
+      return;
+    }
+    throw err;
+  }
 }

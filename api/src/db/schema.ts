@@ -136,18 +136,22 @@ export const queueItems = pgTable('queue_items', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
   index('idx_queue_items_event_position').on(t.eventId, t.position),
+  index('idx_queue_items_area_position').on(t.areaId, t.position),
   check('queue_items_status_check', sql`${t.status} IN ('pending', 'playing', 'played', 'rejected')`),
 ]);
 
-// Single-resource Play Next lock per event (see docs/ARCHITECTURE.md §2)
+// Per-Area Play Next lock — one slot per Area (see docs/ARCHITECTURE.md §2).
+// area_id is the primary key so every Area owns an independent slot; event_id is
+// denormalized for convenience (channel fan-out, event-level reads).
 export const playNextSlot = pgTable('play_next_slot', {
-  eventId: uuid('event_id').primaryKey().references(() => events.id, { onDelete: 'cascade' }),
-  areaId: uuid('area_id').notNull().unique().references(() => areas.id, { onDelete: 'cascade' }),
+  areaId: uuid('area_id').primaryKey().references(() => areas.id, { onDelete: 'cascade' }),
+  eventId: uuid('event_id').notNull().references(() => events.id, { onDelete: 'cascade' }),
   status: text('status').notNull().default('available'),
   holderQueueItemId: uuid('holder_queue_item_id').references(() => queueItems.id),
   lockedAt: timestamp('locked_at', { withTimezone: true }),
   resetAt: timestamp('reset_at', { withTimezone: true }),
 }, (t) => [
+  index('idx_play_next_slot_event').on(t.eventId),
   check('play_next_slot_status_check', sql`${t.status} IN ('available', 'locked', 'cooldown')`),
 ]);
 

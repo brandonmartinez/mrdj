@@ -16,6 +16,7 @@ interface ConfirmModalProps {
   bundles: Bundle[];
   eventSlug: string;
   orgSlug: string;
+  areaId?: string;
   onSuccess: (update: { queueView: QueueView; creditBalance: number }) => void;
   onCancel: () => void;
 }
@@ -37,6 +38,7 @@ export function ConfirmModal({
   bundles,
   eventSlug,
   orgSlug,
+  areaId,
   onSuccess,
   onCancel,
 }: ConfirmModalProps) {
@@ -82,7 +84,7 @@ export function ConfirmModal({
   const handleConfirm = useCallback(async () => {
     setPhase('processing');
     try {
-      const result = await api.request(eventSlug, track.id, tier, idempotencyKey);
+      const result = await api.request(eventSlug, track.id, tier, idempotencyKey, areaId);
       setPhase('success');
       setTimeout(() => {
         onSuccess({ queueView: result.queueView, creditBalance: result.creditBalance });
@@ -104,7 +106,7 @@ export function ConfirmModal({
         setPhase('error');
       }
     }
-  }, [eventSlug, track.id, tier, idempotencyKey, currentBalance, onSuccess]);
+  }, [eventSlug, track.id, tier, idempotencyKey, currentBalance, onSuccess, areaId]);
 
   const handlePurchase = useCallback(async () => {
     if (!selectedBundle) return;
@@ -145,7 +147,7 @@ export function ConfirmModal({
     const before = currentBalance;
     for (let i = 0; i < 12; i++) {
       try {
-        const view = await api.queue(eventSlug);
+        const view = await api.queue(eventSlug, areaId);
         if (view.creditBalance > before) {
           setCurrentBalance(view.creditBalance);
           setSelectedBundle(null);
@@ -164,7 +166,7 @@ export function ConfirmModal({
     setSelectedBundle(null);
     setIntent(null);
     setPhase(granted >= cost ? 'confirm' : 'insufficient');
-  }, [currentBalance, eventSlug, cost, intent]);
+  }, [currentBalance, eventSlug, cost, intent, areaId]);
 
   const resultingBalance = currentBalance - cost;
 

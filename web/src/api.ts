@@ -46,12 +46,19 @@ export interface PlayNextState {
 }
 
 export interface QueueView {
+  areaId?:       string;
   nowPlaying:    QueueItem | null;
   previous:      QueueItem[];
   upcoming:      QueueItem[];
   playNext:      PlayNextState;
   pricing:       { queue: number; boost: number; playNext: number };
   creditBalance: number;
+}
+
+export interface Area {
+  id:        string;
+  name:      string;
+  isDefault: boolean;
 }
 
 export interface Bundle {
@@ -127,7 +134,12 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
 export const api = {
   me: () => apiFetch<MeResponse>('/api/me'),
 
-  queue: (slug: string) => apiFetch<QueueView>(`/api/events/${slug}/queue`),
+  queue: (slug: string, areaId?: string) =>
+    apiFetch<QueueView>(`/api/events/${slug}/queue${areaId ? `?areaId=${encodeURIComponent(areaId)}` : ''}`),
+
+  // Public area roster for the guest jukebox selector (#70). Default area first.
+  areas: (slug: string) =>
+    apiFetch<{ areas: Area[] }>(`/api/events/${slug}/areas`),
 
   actAs: (role: 'guest' | 'admin') =>
     apiFetch<{ ok: boolean; role: string }>('/api/dev/act-as', {
@@ -147,10 +159,11 @@ export const api = {
     trackId: string,
     tier: 'queue' | 'boost' | 'play_next',
     idempotencyKey: string,
+    areaId?: string,
   ) =>
     apiFetch<RequestResponse>(`/api/events/${slug}/requests`, {
       method: 'POST',
-      body: JSON.stringify({ trackId, tier, idempotencyKey }),
+      body: JSON.stringify({ trackId, tier, idempotencyKey, ...(areaId ? { areaId } : {}) }),
     }),
 
   checkoutSession: (bundleId: string) =>
@@ -197,7 +210,8 @@ export const api = {
     apiFetch<{ stats: EventStats }>(`/api/admin/events/${slug}/stats`),
 
   // SSE stream URL (relative → same-origin via the Vite proxy). Consumed by useQueueStream.
-  streamUrl: (slug: string) => `/api/events/${slug}/stream`,
+  streamUrl: (slug: string, areaId?: string) =>
+    `/api/events/${slug}/stream${areaId ? `?areaId=${encodeURIComponent(areaId)}` : ''}`,
 };
 
 // ── Org / DJ-facing API (Epic 6) ──────────────────────────────────────────────

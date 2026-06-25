@@ -43,6 +43,13 @@
       "when": 1782349129842,
       "tag": "0005_stiff_wallflower",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1782351264982,
+      "tag": "0006_lumpy_overlord",
+      "breakpoints": true
     }
   ]
 }

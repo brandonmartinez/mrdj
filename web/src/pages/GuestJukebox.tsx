@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams } from 'react-router-dom';
-import type { MeResponse, QueueView, Track, Bundle, PublicOrg } from '../api.ts';
+import type { MeResponse, QueueView, Track, Bundle, PublicOrg, Area } from '../api.ts';
 import { api, orgApi } from '../api.ts';
 import { useQueueStream } from '../hooks/useQueueStream.ts';
 import { useDebounced } from '../hooks/useDebounced.ts';
@@ -29,6 +29,11 @@ export default function GuestJukebox() {
   const [bundles, setBundles] = useState<Bundle[]>([]);
   const [loading, setLoading] = useState(true);
   const [apiError, setApiError] = useState<string | null>(null);
+
+  // Per-area queue (#70/#91): the roster of areas + the one the guest is viewing.
+  // undefined selection = the event's default area (server-resolved).
+  const [areas, setAreas] = useState<Area[]>([]);
+  const [selectedAreaId, setSelectedAreaId] = useState<string | undefined>(undefined);
 
   // Search state
   const [searchQuery, setSearchQuery] = useState('');
@@ -63,6 +68,15 @@ export default function GuestJukebox() {
         if (meData.user.role === 'guest') {
           guestUserIdRef.current = meData.user.id;
         }
+        // Area roster for the per-area selector (non-fatal; default area used otherwise).
+        try {
+          const areaData = await api.areas(eventSlug);
+          setAreas(areaData.areas);
+          const def = areaData.areas.find((a) => a.isDefault) ?? areaData.areas[0];
+          if (def) setSelectedAreaId(def.id);
+        } catch {
+          /* areas endpoint unavailable — fall back to the server default area */
+        }
         // Org branding + org-scoped bundles (non-fatal if unavailable).
         try {
           const pub = await orgApi.publicOrg(orgSlug);
@@ -77,7 +91,7 @@ export default function GuestJukebox() {
       }
     }
     void init();
-  }, [orgSlug]);
+  }, [orgSlug, eventSlug]);
 
   // ── Queue realtime (SSE + fallback poll) ─────────────────────────────────────
   const handleQueueUpdate = useCallback((view: QueueView) => {
@@ -86,7 +100,7 @@ export default function GuestJukebox() {
     setLoading(false);
   }, []);
 
-  useQueueStream(eventSlug, handleQueueUpdate);
+  useQueueStream(eventSlug, handleQueueUpdate, undefined, selectedAreaId);
 
   // ── Search ──────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -120,7 +134,7 @@ export default function GuestJukebox() {
         setView('guest'); // guests never see the console
       }
       // Immediately refresh balance from a fresh queue poll
-      const qData = await api.queue(eventSlug);
+      const qData = await api.queue(eventSlug, selectedAreaId);
       setQueueView(qData);
       setCreditBalance(qData.creditBalance);
     } catch (err) {
@@ -223,6 +237,33 @@ export default function GuestJukebox() {
         style={{ paddingTop: 'calc(var(--header-h, 64px) + 16px)' }}
         className="max-w-3xl mx-auto pb-24"
       >
+        {/* ── Area selector (#70) — only when the event has multiple areas ── */}
+        {areas.length > 1 && (
+          <section aria-label="Choose area" className="px-4 mb-6">
+            <p className="text-xs font-semibold uppercase tracking-widest text-zinc-500 mb-2">Area</p>
+            <div className="flex flex-wrap gap-2">
+              {areas.map((area) => {
+                const active = area.id === selectedAreaId;
+                return (
+                  <button
+                    key={area.id}
+                    type="button"
+                    aria-pressed={active}
+                    onClick={() => setSelectedAreaId(area.id)}
+                    className={`px-3 py-1.5 rounded-full text-sm font-medium border transition-colors ${
+                      active
+                        ? 'bg-violet-600 border-violet-500 text-white'
+                        : 'bg-zinc-900/60 border-zinc-800 text-zinc-300 hover:border-zinc-600'
+                    }`}
+                  >
+                    {area.name}
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+        )}
+
         {/* ── Cover Flow ──────────────────────────────────────────────── */}
         {queueView && (
           <section aria-label="Now playing queue" className="mb-8">
@@ -336,6 +377,7 @@ export default function GuestJukebox() {
           bundles={bundles}
           eventSlug={eventSlug}
           orgSlug={orgSlug}
+          areaId={selectedAreaId}
           onSuccess={handleModalSuccess}
           onCancel={() => setPendingAction(null)}
         />

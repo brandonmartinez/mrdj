@@ -13,24 +13,24 @@ export function startAutoAdvance(intervalMs: number): NodeJS.Timeout {
 
   return setInterval(async () => {
     try {
-      // Find live events that have an active playing item and at least one pending item
-      const candidates = await db.execute<{ event_id: string }>(sql`
-        SELECT DISTINCT qi.event_id
+      // Find live events' areas that have an active playing item and at least one pending item.
+      const candidates = await db.execute<{ event_id: string; area_id: string }>(sql`
+        SELECT DISTINCT qi.event_id, qi.area_id
         FROM queue_items qi
         JOIN events e ON e.id = qi.event_id
         WHERE e.status = 'live'
           AND EXISTS (
             SELECT 1 FROM queue_items qi2
-            WHERE qi2.event_id = qi.event_id AND qi2.status = 'playing'
+            WHERE qi2.area_id = qi.area_id AND qi2.status = 'playing'
           )
           AND EXISTS (
             SELECT 1 FROM queue_items qi3
-            WHERE qi3.event_id = qi.event_id AND qi3.status = 'pending'
+            WHERE qi3.area_id = qi.area_id AND qi3.status = 'pending'
           )`);
 
       for (const row of candidates.rows) {
-        await advanceQueue(row.event_id, TIMER_ACTOR_ID);
-        console.log(`[auto-advance] Advanced event ${row.event_id}`);
+        await advanceQueue(row.event_id, TIMER_ACTOR_ID, row.area_id);
+        console.log(`[auto-advance] Advanced event ${row.event_id} area ${row.area_id}`);
       }
     } catch (err) {
       // Log but don't crash the process — this is a demo helper
