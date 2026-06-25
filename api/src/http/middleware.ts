@@ -144,6 +144,7 @@ export type ApiError =
   | 'play_next_unavailable'
   | 'forbidden'
   | 'not_found'
+  | 'refund_already_remedied'
   | 'validation'
   | 'internal';
 
