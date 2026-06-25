@@ -15,6 +15,7 @@ How to decide who handles what.
 | Architecture & scope decisions | Rusty | System design, domain model, contracts, tradeoffs, ADRs in `decisions.md` |
 | Code review (reviewer gate) | Rusty | Review PRs, enforce SOLID/DRY/YAGNI; on reject a *different* agent revises |
 | Testing | Implementer + Rusty (gate) | Feature owner writes unit/integration tests; Rusty verifies coverage (see `.copilot/skills/test-discipline`) |
+| Demo / release reels (feature & epic walkthrough videos) | Roman | post-review screen recordings with synthetic cursor + keystroke HUD, AI voice-over narration, MP4 reels in gitignored demos/ |
 | Session logging | Scribe | Automatic — never needs routing |
 | RAI review | Rai | Content safety, bias checks, credential detection, ethical review |
 

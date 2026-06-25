@@ -19,6 +19,7 @@
 | Livingston | Music Integration Engineer | `.squad/agents/livingston/charter.md` | ✅ Active |
 | Virgil | DevOps / Platform Engineer | `.squad/agents/virgil/charter.md` | ✅ Active |
 | Saul | Product / Requirements | `.squad/agents/saul/charter.md` | ✅ Active |
+| Roman | Demo / Release Reels Engineer | `.squad/agents/roman/charter.md` | ✅ Active |
 | Scribe | Session Logger | `.squad/agents/scribe/charter.md` | 📋 Silent |
 | Ralph | Work Monitor | `.squad/agents/ralph/charter.md` | 🔄 Monitor |
 | Rai | RAI Reviewer | `.squad/agents/Rai/charter.md` | 🛡️ RAI |

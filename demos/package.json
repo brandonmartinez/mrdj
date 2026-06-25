@@ -1,0 +1,14 @@
+{
+  "name": "mrdj-demos",
+  "private": true,
+  "type": "module",
+  "version": "0.1.0",
+  "description": "Roman's demo / release-reels tooling — narrated screen recordings of shipped features.",
+  "scripts": {
+    "record": "node scripts/full-tour.mjs",
+    "tour": "node scripts/full-tour.mjs"
+  },
+  "dependencies": {
+    "playwright": "1.61.1"
+  }
+}

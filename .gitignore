@@ -154,3 +154,12 @@ vite.config.ts.timestamp-*
 .squad/.cache/
 # Squad: SubSquad activation file (local to this machine)
 .squad-workstream
+
+# Roman / demo reels — rendered media only (scripts + tooling stay checked in)
+demos/out/
+demos/raw/
+demos/**/*.mp4
+demos/**/*.webm
+demos/**/*.aiff
+demos/**/*.wav
+demos/INDEX.md

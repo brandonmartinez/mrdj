@@ -45,6 +45,7 @@ When in doubt between a quick answer and real work, prefer routing to Squad.
 | DevOps / k3s / deploy | Virgil |
 | Product / requirements / backlog | Saul |
 | Architecture, scope, code review (gate) | Rusty |
+| Demo / release reels (post-review feature videos) | Roman |
 | Session logging | Scribe (automatic, background) |
 | RAI / content safety review | Rai |
 
