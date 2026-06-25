@@ -10,6 +10,7 @@
 // can be dropped in for multi-replica prod (#21) without changing any handler below.
 import type { Request, Response } from 'express';
 import { and, eq } from 'drizzle-orm';
+import { cfg } from '../config/index.js';
 import { db, areas } from '../db/index.js';
 import { getEventBySlug } from '../event/index.js';
 import { sendError } from '../http/middleware.js';
@@ -17,9 +18,12 @@ import {
   InProcessRealtimeService, queueChannel, isQueueChannel,
   type RealtimeService, type QueueChangedEvent,
 } from './service.js';
+import { PgListenNotifyRealtimeService } from './pg-listen-notify.js';
 
-// The active broker. Swap this single binding to change transports (e.g. a LISTEN/NOTIFY broker).
-const realtime: RealtimeService = new InProcessRealtimeService();
+// The active broker. Handlers stay transport-agnostic behind RealtimeService.
+const realtime: RealtimeService = cfg.realtimeTransport === 'pg'
+  ? new PgListenNotifyRealtimeService()
+  : new InProcessRealtimeService();
 
 const HEARTBEAT_MS = 25_000;
 
@@ -39,6 +43,10 @@ export function publishAll(): void {
       realtime.publish(name, { type: 'queue:changed', at });
     }
   }
+}
+
+export async function disconnectRealtime(): Promise<void> {
+  await realtime.disconnect();
 }
 
 // ── GET /api/events/:slug/stream ──────────────────────────────────────────────

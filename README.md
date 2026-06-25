@@ -57,6 +57,8 @@ docker compose exec app npm run db:reset
 | `POSTGRES_USER` / `_PASSWORD` / `_DB` | `mrdj` | Postgres service credentials |
 | `PORT` | `3001` | API listen port |
 | `SESSION_SECRET` | `dev-secret-change-in-prod` | **Change this in production** |
+| `REALTIME_TRANSPORT` | `in-process` | `in-process` for single replica; `pg` enables Postgres LISTEN/NOTIFY fan-out |
+| `REALTIME_DATABASE_URL` | `DATABASE_URL` | Direct non-PgBouncer DSN required when `REALTIME_TRANSPORT=pg` in production |
 
 > **Note:** `.env` is gitignored. Only `.env.example` is tracked. Never commit a real secret.
 

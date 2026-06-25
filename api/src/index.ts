@@ -2,6 +2,7 @@
 import { cfg } from './config/index.js';
 import { waitForDb, pool } from './db/pool.js';
 import { createApp } from './http/server.js';
+import { disconnectRealtime } from './realtime/index.js';
 
 async function main() {
   console.log('[api] mrdj API starting…');
@@ -45,7 +46,8 @@ async function main() {
   });
 
   process.on('SIGTERM', async () => {
-    console.log('[api] SIGTERM received, draining pool…');
+    console.log('[api] SIGTERM received, draining realtime + pool…');
+    await disconnectRealtime();
     await pool.end();
     process.exit(0);
   });

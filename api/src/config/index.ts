@@ -9,6 +9,14 @@ export const cfg = {
   port:                    parseInt(process.env.PORT ?? '3001', 10),
   nodeEnv:                 process.env.NODE_ENV ?? 'development',
   databaseUrl:             process.env.DATABASE_URL ?? 'postgresql://mrdj:mrdj@localhost:5432/mrdj',
+  // Realtime transport. Default remains deterministic single-process fan-out for dev/tests.
+  realtimeTransport:       (process.env.REALTIME_TRANSPORT ?? 'in-process') as 'in-process' | 'pg',
+  // Dedicated direct Postgres DSN for LISTEN/NOTIFY. Falling back to DATABASE_URL is safe in
+  // local dev/test because there is no PgBouncer; production must set this to a direct
+  // non-transaction-pooled Postgres endpoint so LISTEN registrations stay attached.
+  realtimeDatabaseUrl:     process.env.REALTIME_DATABASE_URL
+                            ?? process.env.DATABASE_URL
+                            ?? 'postgresql://mrdj:mrdj@localhost:5432/mrdj',
   sessionSecret:           process.env.SESSION_SECRET ?? 'dev-secret-change-in-prod',
   isDev:                   (process.env.NODE_ENV ?? 'development') === 'development',
   // Demo auto-advance (default off; set AUTO_ADVANCE_INTERVAL_MS=30000 for 30-s demo)

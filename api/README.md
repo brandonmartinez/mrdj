@@ -48,6 +48,8 @@ See `/.env.example` at repo root.
 | `PORT` | `3001` | API listen port |
 | `NODE_ENV` | `development` | Environment |
 | `SESSION_SECRET` | *(insecure default)* | express-session secret — **change in prod** |
+| `REALTIME_TRANSPORT` | `in-process` | Realtime broker: `in-process` or `pg` |
+| `REALTIME_DATABASE_URL` | `DATABASE_URL` | Direct Postgres DSN for LISTEN/NOTIFY; local fallback is safe without PgBouncer |
 
 ## DB Reset Command
 

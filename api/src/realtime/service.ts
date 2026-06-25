@@ -20,7 +20,7 @@ export type Unsubscribe = () => void;
 /**
  * Broker abstraction for the SSE fan-out. Implementations:
  *  - InProcessRealtimeService — EventEmitter, single process (MVP / this slice).
- *  - (future) PgListenNotifyRealtimeService — Postgres LISTEN/NOTIFY for multi-replica fan-out (#21).
+ *  - PgListenNotifyRealtimeService — Postgres LISTEN/NOTIFY for multi-replica fan-out (#21).
  *
  * A LISTEN/NOTIFY implementation MUST hold a dedicated, direct Postgres connection (NOT routed through
  * PgBouncer transaction pooling, which cannot LISTEN) and translate NOTIFY payloads back into
@@ -40,8 +40,8 @@ export interface RealtimeService {
 // ── Channel naming convention (per-area scoping, #25/#70/#91) ──────────────────
 // Format: `queue:<eventId>:<areaId>`. The `queue:` prefix namespaces realtime channels so a
 // non-area-scoped broadcast can cheaply select them; eventId scopes to a tenant's event; areaId
-// makes each Area an independent fan-out so multi-area events never cross-notify. A NOTIFY impl maps
-// this 1:1 to a Postgres channel (identifiers are ASCII + hyphens, well under the 63-byte NOTIFY cap).
+// makes each Area an independent fan-out so multi-area events never cross-notify. The NOTIFY impl
+// hashes this logical name to a short Postgres channel because identifiers are capped at 63 bytes.
 
 const QUEUE_CHANNEL_PREFIX = 'queue:';
 
