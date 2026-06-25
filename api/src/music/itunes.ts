@@ -63,6 +63,18 @@ export interface ITunesProviderOptions {
   backoff?:    BackoffOptions;
 }
 
+function defaultBackoff(): BackoffOptions {
+  return {
+    maxAttempts:       cfg.itunesMaxAttempts,
+    baseDelayMs:       cfg.itunesBaseDelayMs,
+    maxDelayMs:        cfg.itunesMaxDelayMs,
+    retryAfterMaxMs:   cfg.itunesRetryAfterMaxMs,
+    maxTotalBackoffMs: cfg.itunesMaxTotalBackoffMs,
+    attemptTimeoutMs:  cfg.itunesRequestTimeoutMs,
+    totalTimeoutMs:    cfg.itunesTotalTimeoutMs,
+  };
+}
+
 export class ITunesMusicProvider implements MusicProvider {
   readonly name = ITUNES_PROVIDER;
   private readonly baseUrl: string;
@@ -72,7 +84,7 @@ export class ITunesMusicProvider implements MusicProvider {
   constructor(opts: ITunesProviderOptions = {}) {
     this.baseUrl    = (opts.baseUrl ?? cfg.itunesBaseUrl).replace(/\/$/, '');
     this.storefront = opts.storefront ?? cfg.itunesStorefront;
-    this.backoff    = opts.backoff;
+    this.backoff    = { ...defaultBackoff(), ...opts.backoff };
   }
 
   async search(query: string, limit = 15): Promise<Track[]> {

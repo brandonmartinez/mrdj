@@ -30,6 +30,17 @@ export const cfg = {
   // iTunes Search API (Apple public catalog — free, no credentials).
   itunesBaseUrl:           process.env.ITUNES_BASE_URL ?? 'https://itunes.apple.com',
   itunesStorefront:        process.env.ITUNES_STOREFRONT ?? 'US',
+  itunesMaxAttempts:       parseInt(process.env.ITUNES_MAX_ATTEMPTS ?? '3', 10),
+  itunesRequestTimeoutMs:  parseInt(process.env.ITUNES_REQUEST_TIMEOUT_MS ?? '4000', 10),
+  itunesTotalTimeoutMs:    parseInt(process.env.ITUNES_TOTAL_TIMEOUT_MS ?? '9000', 10),
+  itunesBaseDelayMs:       parseInt(process.env.ITUNES_BASE_DELAY_MS ?? '300', 10),
+  itunesMaxDelayMs:        parseInt(process.env.ITUNES_MAX_DELAY_MS ?? '2000', 10),
+  itunesRetryAfterMaxMs:   parseInt(process.env.ITUNES_RETRY_AFTER_MAX_MS ?? '2000', 10),
+  itunesMaxTotalBackoffMs: parseInt(process.env.ITUNES_MAX_TOTAL_BACKOFF_MS ?? '3000', 10),
+  // Dev seed can use a looser per-fetch budget so real top-track refreshes stay reliable.
+  itunesSeedRequestTimeoutMs:  parseInt(process.env.ITUNES_SEED_REQUEST_TIMEOUT_MS ?? '10000', 10),
+  itunesSeedTotalTimeoutMs:    parseInt(process.env.ITUNES_SEED_TOTAL_TIMEOUT_MS ?? '20000', 10),
+  itunesSeedMaxTotalBackoffMs: parseInt(process.env.ITUNES_SEED_MAX_TOTAL_BACKOFF_MS ?? '5000', 10),
   // Spotify (scaffold — Web API now requires Premium; not wired). Secrets via env only.
   spotifyClientId:         process.env.SPOTIFY_CLIENT_ID ?? '',
   spotifyClientSecret:     process.env.SPOTIFY_CLIENT_SECRET ?? '',
@@ -72,4 +83,3 @@ export const cfg = {
   rateLimitSearchPerIp:       parseInt(process.env.RATE_LIMIT_SEARCH_PER_IP ?? '120', 10),
   rateLimitSearchPerSession:  parseInt(process.env.RATE_LIMIT_SEARCH_PER_SESSION ?? '40', 10),
 } as const;
-

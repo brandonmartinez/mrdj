@@ -32,10 +32,15 @@ re-resolution, so queue references survive. Reads check `cached_at` against
 `TRACK_CACHE_TTL_MS`; stale entries trigger a provider re-fetch that refreshes
 `preview_url` + `cached_at` in place (`cache.ts`).
 
-## Rate limiting (#22)
+## Rate limiting & latency bounds (#22)
 
 All provider HTTP goes through `fetchWithBackoff` (`http.ts`): exponential
-backoff on `429`/`503`, honoring `Retry-After`.
+backoff on `429`/`503`, honoring `Retry-After` only after clamping it to a small
+cap. iTunes live requests default to `ITUNES_MAX_ATTEMPTS=3`,
+`ITUNES_REQUEST_TIMEOUT_MS=4000`, `ITUNES_TOTAL_TIMEOUT_MS=9000`,
+`ITUNES_RETRY_AFTER_MAX_MS=2000`, and `ITUNES_MAX_TOTAL_BACKOFF_MS=3000`.
+Dev seeding uses looser `ITUNES_SEED_*` fetch budgets so real top-track refreshes
+can tolerate slower provider responses without affecting live request latency.
 
 ## Integration tests / VCR fixtures (#29)
 

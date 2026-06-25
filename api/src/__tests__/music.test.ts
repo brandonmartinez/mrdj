@@ -13,7 +13,7 @@
  *
  * Run: npm test -w api
  */
-import { describe, it, beforeAll, afterEach, afterAll, expect } from 'vitest';
+import { describe, it, beforeAll, afterEach, afterAll, expect, vi } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -46,6 +46,8 @@ beforeAll(() => {
 });
 afterEach(() => {
   nock.cleanAll();
+  vi.useRealTimers();
+  vi.restoreAllMocks();
 });
 afterAll(async () => {
   nock.enableNetConnect();
@@ -64,10 +66,10 @@ describe('fetchWithBackoff', () => {
     expect(nock.isDone()).toBe(true);
   });
 
-  it('retries on 503 and gives up returning the last response', async () => {
+  it('retries on 503 and gives up with a typed retry error', async () => {
     nock(ITUNES).get('/down').times(4).reply(503);
-    const res = await fetchWithBackoff(`${ITUNES}/down`, undefined, { maxAttempts: 4, sleep: noSleep });
-    expect(res.status).toBe(503);
+    await expect(fetchWithBackoff(`${ITUNES}/down`, undefined, { maxAttempts: 4, sleep: noSleep }))
+      .rejects.toMatchObject({ code: 'retry_exhausted', status: 503 });
   });
 
   it('does not retry a non-retryable 404', async () => {
@@ -75,6 +77,74 @@ describe('fetchWithBackoff', () => {
     const res = await fetchWithBackoff(`${ITUNES}/missing`, undefined, { sleep: noSleep });
     expect(res.status).toBe(404);
     expect(scope.isDone()).toBe(true);
+  });
+
+  it('times out a hung attempt with a typed timeout error', async () => {
+    vi.useFakeTimers();
+    const hangingFetch: typeof fetch = async (_url, init) => new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener('abort', () => reject(init.signal?.reason), { once: true });
+    });
+
+    const pending = fetchWithBackoff(`${ITUNES}/slow`, undefined, {
+      fetch: hangingFetch,
+      maxAttempts: 1,
+      attemptTimeoutMs: 50,
+      totalTimeoutMs: 100,
+    });
+    const assertion = expect(pending).rejects.toMatchObject({ code: 'timeout' });
+
+    await vi.advanceTimersByTimeAsync(50);
+    await assertion;
+  });
+
+  it('clamps absurd Retry-After values before sleeping', async () => {
+    const sleeps: number[] = [];
+    nock(ITUNES).get('/busy').reply(429, '', { 'retry-after': '999999' });
+    nock(ITUNES).get('/busy').reply(200, { ok: true });
+
+    const res = await fetchWithBackoff(`${ITUNES}/busy`, undefined, {
+      retryAfterMaxMs: 2_000,
+      maxDelayMs: 2_000,
+      maxTotalBackoffMs: 2_000,
+      sleep: async (ms) => { sleeps.push(ms); },
+    });
+
+    expect(res.status).toBe(200);
+    expect(sleeps).toEqual([2_000]);
+  });
+
+  it('ignores non-numeric Retry-After values and uses capped exponential backoff', async () => {
+    const sleeps: number[] = [];
+    nock(ITUNES).get('/busy-text').reply(503, '', { 'retry-after': 'not-a-date' });
+    nock(ITUNES).get('/busy-text').reply(200, { ok: true });
+
+    const res = await fetchWithBackoff(`${ITUNES}/busy-text`, undefined, {
+      baseDelayMs: 123,
+      sleep: async (ms) => { sleeps.push(ms); },
+    });
+
+    expect(res.status).toBe(200);
+    expect(sleeps).toEqual([123]);
+  });
+
+  it('caps attempts and total retry budget before another provider call', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-06-25T00:00:00.000Z'));
+    const fetchFn = vi.fn(async () => {
+      vi.setSystemTime(new Date('2026-06-25T00:00:00.080Z'));
+      return new Response('', { status: 503 });
+    });
+
+    await expect(fetchWithBackoff(`${ITUNES}/budget`, undefined, {
+      fetch: fetchFn as unknown as typeof fetch,
+      maxAttempts: 3,
+      baseDelayMs: 50,
+      totalTimeoutMs: 100,
+      maxTotalBackoffMs: 500,
+      sleep: noSleep,
+    })).rejects.toMatchObject({ code: 'backoff_budget_exhausted', status: 503 });
+
+    expect(fetchFn).toHaveBeenCalledTimes(1);
   });
 });
 

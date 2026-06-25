@@ -9,7 +9,6 @@ import { db, queueItems, tracks } from './index.js';
 
 const DEFAULT_LIMIT = 100;
 const LOOKUP_CHUNK_SIZE = 25;
-const FETCH_TIMEOUT_MS = 5_000;
 
 interface TopSongsFeed {
   feed?: {
@@ -34,19 +33,21 @@ function shouldSeedITunes(): boolean {
 }
 
 async function fetchJson<T>(url: string): Promise<T> {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-  try {
-    const res = await fetchWithBackoff(
-      url,
-      { headers: { Accept: 'application/json' }, signal: controller.signal },
-      { maxAttempts: 3, baseDelayMs: 500, maxDelayMs: 2_000 },
-    );
-    if (!res.ok) throw new Error(`iTunes seed fetch failed (${res.status})`);
-    return (await res.json()) as T;
-  } finally {
-    clearTimeout(timeout);
-  }
+  const res = await fetchWithBackoff(
+    url,
+    { headers: { Accept: 'application/json' } },
+    {
+      maxAttempts:       cfg.itunesMaxAttempts,
+      baseDelayMs:       500,
+      maxDelayMs:        cfg.itunesMaxDelayMs,
+      retryAfterMaxMs:   cfg.itunesRetryAfterMaxMs,
+      maxTotalBackoffMs: cfg.itunesSeedMaxTotalBackoffMs,
+      attemptTimeoutMs:  cfg.itunesSeedRequestTimeoutMs,
+      totalTimeoutMs:    cfg.itunesSeedTotalTimeoutMs,
+    },
+  );
+  if (!res.ok) throw new Error(`iTunes seed fetch failed (${res.status})`);
+  return (await res.json()) as T;
 }
 
 function chunks<T>(items: T[], size: number): T[][] {
