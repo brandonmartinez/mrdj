@@ -205,3 +205,15 @@
 **By:** Livingston. **References:** issue #9; commits `858f031` and `774e760`.
 **Why:** Option B best matched the owner goal of real cover art in the carousel, not only in search. The seed remains best-effort and idempotent, and falls back to the public-domain stub tracks on any iTunes outage.
 **Constraint found in review:** The iTunes dev seed must be explicitly controlled by `SEED_ITUNES`. CI seeds with `SEED_ITUNES=false`, and Vitest global setup resets and seeds stub-only data before the suite so tests remain deterministic and do not inherit shared dev catalog rows or iTunes queue foreign keys.
+
+### 2026-06-25 — D: P0/P1 remediation accepted behind reviewer gates
+**Decision:** The team accepted the remediation of all 5 P0 and all 7 P1 findings from `docs/reviews/2026-06-24/SUMMARY.md`; the 4 P2 findings remain open follow-ups.
+**By:** Rusty reviewer gates 1–3; implemented by Basher, Linus, Virgil, Saul, Frank, and Livingston. **Owners:** Rusty for gate workflow; Scribe for history.
+**Why:** Paid-public MVP blockers from the full-cast review needed to be closed before further launch work. The shared Postgres test setup required DB-bound backend work to be serialized while non-DB work ran in parallel.
+**Evidence:** Wave 1 approved and pushed as `4d05684`; payments gate approved and pushed as `87460ba`; music gate approved and pushed as `6afb22f` (`origin/main` HEAD). API tests: 134 passing; TypeScript clean except pre-existing `music.test.ts(33,41)` TS1343. Dev DB re-seeded with iTunes: 85 tracks cached and demo queue 11/11 real artwork URLs.
+**Open follow-ups:** 4 P2s from the review; Rusty nits routed away from original authors: Basher for payments follow-ups (`payments.test.ts:491`, `refund.ts:64-68`, `seed.ts:181`), latent music cancellation note (`http.ts:122-126`), and architecture follow-ups for `adminStats` `areaId`, session regeneration, transactional area+slot creation, and `guest_sessions` pruning.
+
+### 2026-06-25 — P2 / follow-up remediation wave merged
+**Decision:** Track the post-P0/P1 P2 and Rusty-nit remediation as an issues-filed → Rusty-gated → pushed workflow on `main`.
+**By:** Scribe, recording the cast outcome. **Owners:** Basher, Linus, Rai, Saul, Virgil, Livingston.
+**Why:** The cast filed #106–#116 with `squad:{owner}` labels, shipped the Rusty-approved wave as `584065c`, then shipped Basher's follow-up server-side zero-credit bundle guard as `2acc00e` (`origin/main` HEAD). API tests were 139 passing; web build was green; TypeScript was clean except pre-existing `music.test.ts(33,41)` TS1343. Deferred tracking remains open for #107, #115, #116, and #114 post-window money-retry idempotency.
