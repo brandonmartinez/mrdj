@@ -13,6 +13,8 @@
     "db:reset": "tsx src/db/reset.ts && tsx src/db/seed.ts"
   },
   "dependencies": {
+    "@types/connect-pg-simple": "^7.0.3",
+    "connect-pg-simple": "^10.0.0",
     "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "drizzle-orm": "^0.45.2",

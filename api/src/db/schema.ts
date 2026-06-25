@@ -12,7 +12,7 @@
 //   gen_random_uuid() → .defaultRandom()   now() → .defaultNow()
 import { sql } from 'drizzle-orm';
 import {
-  pgTable, uuid, text, timestamp, integer, boolean, numeric, index, unique, check, primaryKey,
+  pgTable, uuid, text, timestamp, integer, boolean, numeric, index, unique, check, primaryKey, varchar, json,
 } from 'drizzle-orm/pg-core';
 
 export const users = pgTable('users', {
@@ -242,3 +242,12 @@ export const processedWebhookEvents = pgTable('processed_webhook_events', {
   type: text('type').notNull(),
   processedAt: timestamp('processed_at', { withTimezone: true }).notNull().defaultNow(),
 });
+
+// connect-pg-simple durable express-session store. Realtime fan-out remains process-local.
+export const pgSessions = pgTable('session', {
+  sid: varchar('sid').primaryKey(),
+  sess: json('sess').notNull(),
+  expire: timestamp('expire', { precision: 6 }).notNull(),
+}, (t) => [
+  index('idx_session_expire').on(t.expire),
+]);

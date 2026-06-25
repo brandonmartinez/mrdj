@@ -2,10 +2,12 @@
 import express from 'express';
 import type { NextFunction, Request, Response } from 'express';
 import session from 'express-session';
+import connectPgSimple from 'connect-pg-simple';
 import cors from 'cors';
 import fs from 'node:fs';
 import path from 'node:path';
 import { cfg } from '../config/index.js';
+import { pool } from '../db/pool.js';
 import { initSession } from './middleware.js';
 import { registerRoutes } from './routes.js';
 import { asyncHandler, sendError } from './middleware.js';
@@ -25,6 +27,7 @@ declare module 'express-session' {
 
 export function createApp() {
   const app = express();
+  const PgSessionStore = connectPgSimple(session);
 
   // Behind Traefik/ingress in prod: trust the proxy so req.ip reflects the real client
   // (X-Forwarded-For) for rate limiting and logging, not the load balancer's address.
@@ -44,6 +47,11 @@ export function createApp() {
   app.use(express.json());
 
   app.use(session({
+    store: new PgSessionStore({
+      pool,
+      tableName: 'session',
+      createTableIfMissing: false,
+    }),
     secret: cfg.sessionSecret,
     resave: false,
     saveUninitialized: false,

@@ -50,6 +50,13 @@
       "when": 1782351264982,
       "tag": "0006_lumpy_overlord",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1782360878242,
+      "tag": "0007_tough_mad_thinker",
+      "breakpoints": true
     }
   ]
 }
