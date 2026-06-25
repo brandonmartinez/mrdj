@@ -37,7 +37,7 @@ spec:
               cpu: "1000m"
           startupProbe:
             httpGet:
-              path: /api/health
+              path: /api/livez
               port: 3000
             initialDelaySeconds: 10
             periodSeconds: 10
@@ -52,7 +52,7 @@ spec:
             failureThreshold: 3
           livenessProbe:
             httpGet:
-              path: /api/health
+              path: /api/livez
               port: 3000
             periodSeconds: 30
             timeoutSeconds: 5

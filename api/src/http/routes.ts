@@ -74,6 +74,14 @@ export function registerRoutes(app: Express) {
     }
   });
 
+  // Liveness probe target (#51): process-only, NO external dependencies. Kubernetes uses this to
+  // decide whether to RESTART the pod, so it must never fail on a transient DB blip — otherwise a
+  // database hiccup would trigger a pod-restart storm. Readiness (/api/health, DB-gated) handles
+  // pulling an unhealthy pod out of the load balancer without killing it.
+  app.get('/api/livez', (_req, res) => {
+    res.json({ status: 'ok' });
+  });
+
   // ── Identity ──────────────────────────────────────────────────────────────
   app.get('/api/me', asyncHandler(meHandler));
 
