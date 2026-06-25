@@ -9,11 +9,11 @@ This directory contains a complete Kubernetes deployment bundle for mrdj, design
 **Key characteristics:**
 - **Namespace:** `mrdj`
 - **Image:** `ghcr.io/brandonmartinez/mrdj` (published via CI)
-- **Replicas:** 1 (HPA disabled until shared sessions and brokered realtime are both in place)
+- **Replicas:** 2 baseline, autoscaled to 3 by CPU HPA
 - **Health:** `/api/livez` startup/liveness probes; `/api/health` readiness probe
 - **Ingress:** Traefik + cert-manager TLS (`letsencrypt-prod`)
 - **Config:** Kustomize configMap + secret generators from `.env` files
-- **Database:** Shared cluster PostgreSQL (PgBouncer endpoint in `data` namespace)
+- **Database:** Shared cluster PostgreSQL (`DATABASE_URL` via PgBouncer; realtime uses a direct Postgres DSN)
 
 ## Architecture
 
@@ -25,20 +25,23 @@ This directory contains a complete Kubernetes deployment bundle for mrdj, design
               ↓
 ┌─────────────────────────────────────────┐
 │ mrdj-svc (ClusterIP)                    │
-│ ↓ Routes to a single pod (HPA disabled)   │
+│ ↓ Routes to 2–3 pods (HPA enabled)      │
 └─────────────────────────────────────────┘
               ↓
 ┌─────────────────────────────────────────┐
-│ mrdj pod (single-replica MVP topology)  │
+│ mrdj pods (multi-replica beta topology) │
 │ - /api/livez startup/liveness probes    │
 │ - /api/health readiness probe           │
+│ - REALTIME_TRANSPORT=pg fan-out         │
 │ - envFrom configMap + secret            │
 │ - Resource limits: 512Mi / 1 CPU        │
 └─────────────────────────────────────────┘
               ↓
 ┌─────────────────────────────────────────┐
-│ postgres-svc.data.svc.cluster.local     │
+│ DATABASE_URL: postgres-svc...           │
 │ (shared PostgreSQL via PgBouncer)       │
+│ REALTIME_DATABASE_URL: postgres-primary │
+│ (DIRECT Postgres; never PgBouncer)      │
 │ Database: mrdj                          │
 └─────────────────────────────────────────┘
 ```
@@ -48,7 +51,8 @@ This directory contains a complete Kubernetes deployment bundle for mrdj, design
 | File | Purpose |
 |------|---------|
 | `namespace.yml` | Creates the `mrdj` namespace |
-| `deployment.yml` | Main app deployment (1 replica, health probes, topology spread for future scale-up) |
+| `deployment.yml` | Main app deployment (2 replicas, health probes, topology spread) |
+| `horizontalpodautoscaler.yml` | HPA scaling mrdj from 2 to 3 replicas on CPU |
 | `service.yml` | ClusterIP service exposing port 80 → container 3000 |
 | `ingress.yml` | Traefik ingress with TLS (cert-manager `letsencrypt-prod`) |
 | `pdb.yml` | PodDisruptionBudget ensuring min 1 replica available during disruptions |
@@ -95,12 +99,14 @@ This is the current local secret-generation path: real secret values are written
 | Variable | Where | Notes |
 |----------|-------|-------|
 | `DATABASE_URL` | `.env.secret.temp` | Full DSN incl. cluster Postgres user + password (kustomize does not interpolate) |
+| `REALTIME_TRANSPORT` | `.env` | `pg` in production so LISTEN/NOTIFY fans out across replicas |
+| `REALTIME_DATABASE_URL` | `.env.secret.temp` | **DIRECT Postgres DSN only. Do not point at PgBouncer; LISTEN requires a stable session connection.** |
 | `SESSION_SECRET` | `.env.secret.temp` | 64-char random string for express-session cookie signing |
 | `GOOGLE_CLIENT_ID` | `.env.secret.temp` | Google SSO credentials |
 | `GOOGLE_CLIENT_SECRET` | `.env.secret.temp` | Google SSO credentials |
 | `STRIPE_SECRET_KEY` / `STRIPE_PUBLISHABLE_KEY` / `STRIPE_WEBHOOK_SECRET` | `.env.secret.temp` | Stripe Connect (live for prod, test for staging) |
 
-Non-secret config (`NODE_ENV`, `PORT`, `WEB_BASE_URL`, `GOOGLE_REDIRECT_URI`, `MUSIC_PROVIDER`,
+Non-secret config (`NODE_ENV`, `PORT`, `REALTIME_TRANSPORT`, `WEB_BASE_URL`, `GOOGLE_REDIRECT_URI`, `MUSIC_PROVIDER`,
 `PLATFORM_FEE_PERCENT`, `PAYMENTS_CURRENCY`, Stripe Connect redirect URLs, `REFUND_WINDOW_MS`,
 `RATE_LIMIT_*`) lives in `.env`. All keys mirror exactly what `api/src/config/index.ts` reads.
 
@@ -148,14 +154,25 @@ This deployment closely follows the structure of an existing reference app on th
 - **Health probes:** Startup/liveness use `/api/livez`; readiness uses DB-gated `/api/health`
 - **Resource limits:** Adjusted for mrdj's expected load (128Mi–512Mi, 100m–1000m CPU)
 - **Ingress annotations:** Identical cert-manager + Traefik HTTPS-redirect middleware
-- **HPA strategy:** Disabled for MVP; do not scale above one pod until shared session storage and brokered realtime are both complete
+- **HPA strategy:** min 2, max 3 replicas; CPU target matches the pre-stopgap HPA
 - **PDB:** minAvailable 1 (ensures availability during node maintenance)
 - **Topology spread:** Distributes pods across nodes for resilience
 - **Config pattern:** Kustomize generators from `.env` files, secrets never in git
 
-## MVP topology constraint
+## Multi-replica realtime topology
 
-Production is intentionally pinned to **one replica** for the MVP. Issue #105 is being addressed in two halves: the session store is now Postgres-backed, but realtime/SSE fan-out is still process-local. HPA was removed in `9fe60c0`; keep it disabled and do not scale past one pod until both the shared session store and brokered realtime fan-out are in place. The remaining blocker is the realtime-fan-out follow-up.
+Production now runs the v0.6.0 multi-replica topology: sessions are shared through the
+Postgres-backed `connect-pg-simple` store, and realtime fan-out uses the Epic 8
+Postgres LISTEN/NOTIFY broker (`REALTIME_TRANSPORT=pg`). The deployment starts at 2
+replicas, the HPA can scale to 3, and the PDB keeps at least 1 pod available during
+voluntary disruptions.
+
+> **Operational footgun:** `REALTIME_DATABASE_URL` must be a **direct Postgres** DSN.
+> Do **not** point it at PgBouncer or any transaction-pooled endpoint. LISTEN/NOTIFY
+> keeps a long-lived session connection; PgBouncer transaction pooling will break that
+> registration. In this cluster, `DATABASE_URL` uses `postgres-svc.data.svc.cluster.local`
+> (PgBouncer) and `REALTIME_DATABASE_URL` uses
+> `postgres-primary.data.svc.cluster.local:5432/mrdj` (direct Postgres).
 
 ## Known limitations / Post-beta hardening (#108)
 
@@ -177,27 +194,28 @@ These are intentionally documented gaps for the beta; do not silently treat them
 
 ## Assumptions
 
-1. **Single-replica beta topology**
-   HPA is intentionally not part of `kustomization.yml`; keep `replicas: 1` until brokered realtime removes the process-local fan-out blocker.
+1. **Multi-replica beta topology**
+   HPA is part of `kustomization.yml`; keep the baseline at `replicas: 2`, `minReplicas: 2`,
+   and `maxReplicas: 3` unless capacity testing justifies a larger beta footprint.
 
 2. **`${NETWORK_HOSTNAME_SUFFIX}` = `themartinez.cloud`**
    Confirmed from cluster `.env`: `NETWORK_HOSTNAME_SUFFIX=themartinez.cloud`
    → mrdj will be accessible at `https://mrdj.themartinez.cloud`
 
 3. **Shared PostgreSQL (data namespace)**
-   mrdj connects to the cluster's existing PostgreSQL via PgBouncer:
-   - **Service DNS:** `postgres-svc.data.svc.cluster.local:5432`
+   mrdj connects to the cluster's existing PostgreSQL:
+   - **App DB service DNS:** `postgres-svc.data.svc.cluster.local:5432` (PgBouncer transaction pooling)
+   - **Realtime DB service DNS:** `postgres-primary.data.svc.cluster.local:5432` (direct Postgres; required for LISTEN/NOTIFY)
    - **Auth:** Same `POSTGRES_USER` / `POSTGRES_PASSWORD` as other apps
    - **Database:** `mrdj` (created via init script in `postgres-init` ConfigMap)
-   - **Connection mode:** PgBouncer transaction pooling (efficient for Node.js)
+   - **Connection mode:** PgBouncer transaction pooling for normal app queries; direct Postgres for realtime LISTEN/NOTIFY only
 
 ## Next Steps
 
-1. **Broker realtime fan-out** — required before HPA/multiple replicas can return
-2. **Database init script** — add `init-mrdj-db.sh` to `data/postgres-init.yml` in cluster repo
-3. **Promote manifests at launch** — copy the validated `k8s/` bundle into the cluster GitOps repo
-4. **Secrets provisioning** — generate real `.env.secret.temp` values locally for beta apply; replace with sealed/external secrets post-beta (#108)
-5. **Resolve Open Decisions:**
+1. **Database init script** — add `init-mrdj-db.sh` to `data/postgres-init.yml` in cluster repo
+2. **Promote manifests at launch** — copy the validated `k8s/` bundle into the cluster GitOps repo
+3. **Secrets provisioning** — generate real `.env.secret.temp` values locally for beta apply; replace with sealed/external secrets post-beta (#108)
+4. **Resolve Open Decisions:**
    - **O1:** Payment provider config (Frank)
    - **O5:** Manifest location — RESOLVED, see `docs/decisions/manifests-location.md` (cluster repo canonical; author/validate in `k8s/`, promote at launch)
    - **O3:** WebSocket/SSE config (Basher)
@@ -218,6 +236,7 @@ kubectl logs -n mrdj -l app=mrdj --tail=100
 
 **Database connection errors:**
 - Verify `postgres-svc.data.svc.cluster.local` is reachable from mrdj namespace
+- Verify `REALTIME_DATABASE_URL` points to `postgres-primary.data.svc.cluster.local:5432`, not PgBouncer
 - Check `POSTGRES_USER` / `POSTGRES_PASSWORD` match cluster `data` secret
 - Confirm `mrdj` database exists (run init script)
 
