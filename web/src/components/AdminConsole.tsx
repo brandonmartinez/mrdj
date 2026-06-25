@@ -34,14 +34,14 @@ export function AdminConsole({
 
   const refreshStats = useCallback(async () => {
     try {
-      const { stats } = await api.adminStats(eventSlug);
+      const { stats } = await api.adminStats(eventSlug, areaId);
       setStats(stats);
     } catch {
       // non-fatal — stats panel just stays stale
     }
-  }, [eventSlug]);
+  }, [eventSlug, areaId]);
 
-  // Refresh stats on mount and whenever the queue changes (a change = new aggregates).
+  // Refresh stats on mount, area changes, and whenever the queue changes (a change = new aggregates).
   useEffect(() => { void refreshStats(); }, [refreshStats, queueView]);
 
   async function handleAdvance() {

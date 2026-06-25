@@ -246,8 +246,10 @@ export const api = {
       body: JSON.stringify({ queueItemId, ...(areaId ? { areaId } : {}) }),
     }),
 
-  adminStats: (slug: string) =>
-    apiFetch<{ stats: EventStats }>(`/api/admin/events/${slug}/stats`),
+  adminStats: (slug: string, areaId?: string) =>
+    apiFetch<{ stats: EventStats }>(
+      `/api/admin/events/${slug}/stats${areaId ? `?areaId=${encodeURIComponent(areaId)}` : ''}`,
+    ),
 
   // SSE stream URL (relative → same-origin via the Vite proxy). Consumed by useQueueStream.
   streamUrl: (slug: string, areaId?: string) =>
