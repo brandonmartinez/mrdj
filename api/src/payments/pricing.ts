@@ -120,8 +120,10 @@ function rowToBundle(r: typeof creditBundles.$inferSelect): BundleRow {
   };
 }
 
+type BundleCreditTotals = Pick<BundleInput, 'credits' | 'bonusCredits'>;
+
 /** Validate a bundle payload; returns an error string or null. */
-function validateBundle(input: Partial<BundleInput>, partial = false): string | null {
+function validateBundle(input: Partial<BundleInput>, partial = false, existing?: BundleCreditTotals): string | null {
   const req = (n: keyof BundleInput) => input[n] !== undefined;
   if (!partial) {
     if (!input.label || typeof input.label !== 'string') return 'label is required';
@@ -131,6 +133,9 @@ function validateBundle(input: Partial<BundleInput>, partial = false): string | 
   if (input.label !== undefined && (typeof input.label !== 'string' || input.label.trim() === '')) return 'label must be a non-empty string';
   if (input.credits !== undefined && (!Number.isInteger(input.credits) || input.credits < 0)) return 'credits must be a non-negative integer';
   if (input.bonusCredits !== undefined && (!Number.isInteger(input.bonusCredits) || input.bonusCredits < 0)) return 'bonusCredits must be a non-negative integer';
+  if (!partial || existing !== undefined) {
+    if ((input.credits ?? existing?.credits ?? 0) + (input.bonusCredits ?? existing?.bonusCredits ?? 0) <= 0) return 'bundle must include at least one credit';
+  }
   if (input.priceCents !== undefined && (!Number.isInteger(input.priceCents) || input.priceCents <= 0)) return 'priceCents must be a positive integer';
   if (input.discountPct !== undefined && (typeof input.discountPct !== 'number' || input.discountPct < 0)) return 'discountPct must be a non-negative number';
   if (input.sortOrder !== undefined && !Number.isInteger(input.sortOrder)) return 'sortOrder must be an integer';
@@ -179,6 +184,16 @@ export async function updateBundleHandler(req: Request, res: Response) {
   if (input.sortOrder !== undefined)    set.sortOrder    = input.sortOrder;
   if (input.active !== undefined)       set.active       = input.active;
   if (Object.keys(set).length === 0) { sendError(res, 400, 'validation', 'no fields to update'); return; }
+
+  const existing = (input.credits !== undefined || input.bonusCredits !== undefined)
+    ? await getBundleForOrg(org.id, bundleId)
+    : null;
+  if ((input.credits !== undefined || input.bonusCredits !== undefined) && !existing) {
+    sendError(res, 404, 'not_found', `Bundle '${bundleId}' not found`);
+    return;
+  }
+  const totalErr = validateBundle(input, true, existing ?? undefined);
+  if (totalErr) { sendError(res, 400, 'validation', totalErr); return; }
 
   const [row] = await db
     .update(creditBundles)

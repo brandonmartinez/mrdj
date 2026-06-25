@@ -587,8 +587,27 @@ describe('Per-org bundles CRUD (#43)', () => {
   });
 
   it('rejects an invalid bundle payload', async () => {
-    const r = await apiCall('POST', `/orgs/${orgA.slug}/bundles`, { label: '', credits: -1 }, adminCookie);
-    expect(r.status).toBe(400);
+    const negative = await apiCall<{ error: { message: string } }>('POST', `/orgs/${orgA.slug}/bundles`, { label: '', credits: -1 }, adminCookie);
+    expect(negative.status).toBe(400);
+    expect(negative.body.error.message).toBe('label is required');
+
+    const negativeCredits = await apiCall<{ error: { message: string } }>('POST', `/orgs/${orgA.slug}/bundles`, { label: 'Negative Credits', credits: -1, bonusCredits: 0, priceCents: 500 }, adminCookie);
+    expect(negativeCredits.status).toBe(400);
+    expect(negativeCredits.body.error.message).toBe('credits must be a non-negative integer');
+
+    const negativeBonusCredits = await apiCall<{ error: { message: string } }>('POST', `/orgs/${orgA.slug}/bundles`, { label: 'Negative Bonus', credits: 1, bonusCredits: -1, priceCents: 500 }, adminCookie);
+    expect(negativeBonusCredits.status).toBe(400);
+    expect(negativeBonusCredits.body.error.message).toBe('bonusCredits must be a non-negative integer');
+  });
+
+  it('rejects zero-credit bundles and accepts bundles with credits', async () => {
+    const zeroCredit = await apiCall<{ error: { message: string } }>('POST', `/orgs/${orgA.slug}/bundles`, { label: 'Zero', credits: 0, bonusCredits: 0, priceCents: 500 }, adminCookie);
+    expect(zeroCredit.status).toBe(400);
+    expect(zeroCredit.body.error.message).toBe('bundle must include at least one credit');
+
+    const oneCredit = await apiCall<{ credits: number; bonusCredits: number }>('POST', `/orgs/${orgA.slug}/bundles`, { label: 'One Credit', credits: 1, bonusCredits: 0, priceCents: 500 }, adminCookie);
+    expect(oneCredit.status).toBe(201);
+    expect(oneCredit.body.credits + oneCredit.body.bonusCredits).toBeGreaterThan(0);
   });
 
   it('cannot modify another org\'s bundle (404 tenant isolation)', async () => {
