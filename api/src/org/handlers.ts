@@ -16,6 +16,17 @@ function isOrgRole(v: unknown): v is OrgRole {
   return typeof v === 'string' && (ORG_ROLES as readonly string[]).includes(v);
 }
 
+function normalizeLogoUrl(value: string | null): string | null {
+  const trimmed = value?.trim();
+  if (!trimmed) return null;
+  try {
+    const url = new URL(trimmed);
+    return url.protocol === 'https:' ? trimmed : '';
+  } catch {
+    return '';
+  }
+}
+
 // ── Organization CRUD (#71) ───────────────────────────────────────────────────
 
 /** POST /api/orgs — platform admin creates a tenant (+ optional owner membership). */
@@ -115,7 +126,12 @@ export async function updateOrgHandler(req: Request, res: Response) {
     patch.name = name.trim();
   }
   if (logoUrl !== undefined) {
-    patch.logoUrl = logoUrl && logoUrl.trim() ? logoUrl.trim() : null;
+    const normalized = normalizeLogoUrl(logoUrl);
+    if (normalized === '') {
+      sendError(res, 400, 'validation', 'logoUrl must be an HTTPS URL');
+      return;
+    }
+    patch.logoUrl = normalized;
   }
   if (accentColor !== undefined) {
     if (accentColor && !HEX_RE.test(accentColor)) {

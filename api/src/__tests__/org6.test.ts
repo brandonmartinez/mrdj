@@ -108,6 +108,26 @@ describe('Self-serve organizations (#32/#35)', () => {
     expect(bundles.body.length).toBeGreaterThan(0);
   });
 
+  it('validates organization logo URLs as HTTPS-only', async () => {
+    const http = await apiCall<{ error: { code: string } }>(
+      'PATCH', `/orgs/${orgSlug}`, { logoUrl: 'http://tracker.example/logo.png' }, adminCookie,
+    );
+    expect(http.status).toBe(400);
+    expect(http.body.error.code).toBe('validation');
+
+    const https = await apiCall<{ organization: { logoUrl: string | null } }>(
+      'PATCH', `/orgs/${orgSlug}`, { logoUrl: 'https://cdn.example/logo.png' }, adminCookie,
+    );
+    expect(https.status).toBe(200);
+    expect(https.body.organization.logoUrl).toBe('https://cdn.example/logo.png');
+
+    const empty = await apiCall<{ organization: { logoUrl: string | null } }>(
+      'PATCH', `/orgs/${orgSlug}`, { logoUrl: '' }, adminCookie,
+    );
+    expect(empty.status).toBe(200);
+    expect(empty.body.organization.logoUrl).toBeNull();
+  });
+
   it('duplicate slug is rejected (409)', async () => {
     const r = await apiCall('POST', '/me/orgs', { slug: orgSlug, name: 'Dup' }, adminCookie);
     expect(r.status).toBe(409);
