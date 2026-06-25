@@ -198,3 +198,10 @@
 **P2-B (recommended):** Play Next status bar in `App.tsx` has no `aria-label`. Add contextual label with status and price (~5 min). Owner: Linus.
 **P3-A (optional):** "Slot taken" tooltip lacks timing. Add: "Slot taken — available after the current Play Next song plays." Owner: Linus.
 **Status:** OPEN. P1-A and P1-B required before real-money/public launch; P2–P3 recommended before production.
+
+
+### 2026-06-24 — iTunes top-tracks dev seed
+**Decision:** Use Option B for the dev seed: fetch and upsert roughly 85 iTunes catalog tracks (`provider='itunes'`) and repoint the seeded demo event's 11 queue items to real iTunes tracks so the guest jukebox cover-flow carousel shows real artwork.
+**By:** Livingston. **References:** issue #9; commits `858f031` and `774e760`.
+**Why:** Option B best matched the owner goal of real cover art in the carousel, not only in search. The seed remains best-effort and idempotent, and falls back to the public-domain stub tracks on any iTunes outage.
+**Constraint found in review:** The iTunes dev seed must be explicitly controlled by `SEED_ITUNES`. CI seeds with `SEED_ITUNES=false`, and Vitest global setup resets and seeds stub-only data before the suite so tests remain deterministic and do not inherit shared dev catalog rows or iTunes queue foreign keys.
