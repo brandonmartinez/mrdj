@@ -6,7 +6,7 @@
 import type { Request, Response } from 'express';
 import { randomUUID } from 'crypto';
 import { eq } from 'drizzle-orm';
-import { db, organizations } from '../db/index.js';
+import { db, organizations, platformPayments } from '../db/index.js';
 import { cfg } from '../config/index.js';
 import { sendError } from '../http/middleware.js';
 import { getStripe } from './client.js';
@@ -72,6 +72,19 @@ export async function purchaseHandler(req: Request, res: Response) {
     },
     { idempotencyKey },
   );
+
+  await db.insert(platformPayments).values({
+    organizationId:            org.id,
+    userId,
+    bundleId,
+    stripePaymentIntentId:     intent.id,
+    stripeConnectedAccountId:  orgRow.stripeAccountId,
+    amountCents:               bundle.priceCents,
+    applicationFeeCents:       feeCents,
+    currency:                  cfg.paymentsCurrency,
+    creditsGranted:            totalCredits,
+    status:                    'pending',
+  }).onConflictDoNothing({ target: platformPayments.stripePaymentIntentId });
 
   res.json({
     clientSecret:        intent.client_secret,

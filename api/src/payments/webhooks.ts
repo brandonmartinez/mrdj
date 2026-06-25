@@ -5,7 +5,7 @@
 // verified against the RAW request body (the route is mounted with express.raw).
 import type { Request, Response } from 'express';
 import type Stripe from 'stripe';
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 import {
   db, organizations, platformPayments, processedWebhookEvents, pgErrorCode, type DbExecutor,
 } from '../db/index.js';
@@ -95,51 +95,64 @@ async function handleAccountUpdated(account: Stripe.Account, tx: DbExecutor): Pr
 }
 
 /**
- * #34 — record the PlatformPayment and grant credits in one transaction. The ledger's
- * UNIQUE(stripe_payment_intent_id) plus the grant idempotency key guarantee credits
- * are granted exactly once even if the event is delivered multiple times.
+ * #34 — grant from the server-owned pending PlatformPayment row. Stripe metadata is
+ * not trusted for credits; it is only a carrier on the PaymentIntent.
  */
 async function handlePaymentIntentSucceeded(intent: Stripe.PaymentIntent, tx: DbExecutor): Promise<void> {
-  const md = intent.metadata ?? {};
-  const organizationId = md.organizationId;
-  const userId         = md.userId;
-  if (!organizationId || !userId) {
-    // Not one of our marketplace purchases (or missing metadata) — ignore.
+  const [purchase] = await tx
+    .select()
+    .from(platformPayments)
+    .where(eq(platformPayments.stripePaymentIntentId, intent.id))
+    .for('update');
+  if (!purchase) {
+    alertPlatformAdmin('payment_intent.succeeded without local pending purchase', {
+      paymentIntentId: intent.id,
+    });
     return;
   }
-  const creditsGranted      = parseInt(md.creditsGranted ?? '0', 10);
-  const applicationFeeCents = parseInt(md.applicationFeeCents ?? '0', 10);
+  if (purchase.status !== 'pending') return;
+
   const chargeId = typeof intent.latest_charge === 'string'
     ? intent.latest_charge
     : intent.latest_charge?.id ?? null;
   const amountCents = intent.amount_received || intent.amount;
+  const destination = typeof intent.transfer_data?.destination === 'string'
+    ? intent.transfer_data.destination
+    : intent.transfer_data?.destination?.id ?? null;
+  const expectedCurrency = purchase.currency.toLowerCase();
+  const receivedCurrency = (intent.currency ?? cfg.paymentsCurrency).toLowerCase();
+  const valid = intent.status === 'succeeded'
+    && amountCents === purchase.amountCents
+    && receivedCurrency === expectedCurrency
+    && (!purchase.stripeConnectedAccountId || destination === purchase.stripeConnectedAccountId);
 
-  // Ledger row — idempotent on payment_intent_id. If it already exists, a replay
-  // hit the UNIQUE constraint: skip the grant (already applied).
-  const inserted = await tx
-    .insert(platformPayments)
-    .values({
-      organizationId,
-      userId,
-      bundleId:              md.bundleId ?? null,
-      stripePaymentIntentId: intent.id,
-      stripeChargeId:        chargeId,
-      amountCents,
-      applicationFeeCents,
-      currency:              intent.currency ?? cfg.paymentsCurrency,
-      creditsGranted,
-      status:                'succeeded',
-    })
-    .onConflictDoNothing({ target: platformPayments.stripePaymentIntentId })
+  if (!valid) {
+    alertPlatformAdmin('payment_intent.succeeded failed local purchase validation', {
+      paymentIntentId: intent.id,
+      expectedAmountCents: purchase.amountCents,
+      receivedAmountCents: amountCents,
+      expectedCurrency,
+      receivedCurrency,
+      expectedDestination: purchase.stripeConnectedAccountId,
+      receivedDestination: destination,
+      receivedStatus: intent.status,
+    });
+    return;
+  }
+
+  const updated = await tx
+    .update(platformPayments)
+    .set({ stripeChargeId: chargeId, status: 'succeeded' })
+    .where(and(eq(platformPayments.id, purchase.id), eq(platformPayments.status, 'pending')))
     .returning({ id: platformPayments.id });
 
-  if (inserted.length === 0) return; // already recorded → already granted.
+  if (updated.length === 0) return;
 
-  if (creditsGranted > 0) {
+  if (purchase.creditsGranted > 0) {
     await grantCredits(
-      userId,
-      organizationId,
-      creditsGranted,
+      purchase.userId,
+      purchase.organizationId,
+      purchase.creditsGranted,
       'purchase',
       `purchase-${intent.id}`,
       undefined,

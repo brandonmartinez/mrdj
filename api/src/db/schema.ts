@@ -228,15 +228,19 @@ export const platformPayments = pgTable('platform_payments', {
   bundleId: uuid('bundle_id').references(() => creditBundles.id),
   stripePaymentIntentId: text('stripe_payment_intent_id').notNull().unique(),
   stripeChargeId: text('stripe_charge_id'),
+  stripeConnectedAccountId: text('stripe_connected_account_id'),
   amountCents: integer('amount_cents').notNull(),
   applicationFeeCents: integer('application_fee_cents').notNull(),
   currency: text('currency').notNull().default('usd'),
   creditsGranted: integer('credits_granted').notNull(),
-  status: text('status').notNull().default('succeeded'),
+  status: text('status').notNull().default('pending'),
+  refundMethod: text('refund_method'),
+  refundedAt: timestamp('refunded_at', { withTimezone: true }),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 }, (t) => [
   index('idx_platform_payments_org').on(t.organizationId),
-  check('platform_payments_status_check', sql`${t.status} IN ('succeeded', 'disputed', 'refunded')`),
+  check('platform_payments_status_check', sql`${t.status} IN ('pending', 'succeeded', 'disputed', 'refunded')`),
+  check('platform_payments_refund_method_check', sql`${t.refundMethod} IS NULL OR ${t.refundMethod} IN ('money', 'credits')`),
 ]);
 
 // Stripe webhook idempotency guard. Stripe may deliver the same event id more than

@@ -64,6 +64,13 @@
       "when": 1782360949634,
       "tag": "0008_panoramic_ego",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1782362061596,
+      "tag": "0009_fearless_mystique",
+      "breakpoints": true
     }
   ]
 }

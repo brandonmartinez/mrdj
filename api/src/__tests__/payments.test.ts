@@ -122,6 +122,31 @@ async function postWebhook(evt: WebhookEvent, badSig = false): Promise<{ status:
   return { status: res.status, body: text ? JSON.parse(text) : {} };
 }
 
+async function seedPendingPurchase(intentId: string, overrides: Partial<{
+  userId: string; organizationId: string; bundleId: string; amountCents: number;
+  applicationFeeCents: number; currency: string; creditsGranted: number; accountId: string;
+}> = {}): Promise<string> {
+  const { rows } = await db.query(
+    `INSERT INTO platform_payments
+       (organization_id, user_id, bundle_id, stripe_payment_intent_id, amount_cents,
+        application_fee_cents, currency, credits_granted, status, stripe_connected_account_id)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,'pending',$9)
+     RETURNING id`,
+    [
+      overrides.organizationId ?? orgA.id,
+      overrides.userId ?? BUYER,
+      overrides.bundleId ?? bundleA,
+      intentId,
+      overrides.amountCents ?? 500,
+      overrides.applicationFeeCents ?? 50,
+      overrides.currency ?? 'usd',
+      overrides.creditsGranted ?? 5,
+      overrides.accountId ?? orgA.acct,
+    ],
+  );
+  return rows[0].id as string;
+}
+
 // ── Provisioned tenants ───────────────────────────────────────────────────────
 const orgA = { id: uuid(), slug: `payA-${uuid().slice(0, 8)}`, acct: `acct_orgA_${uuid().slice(0, 6)}` };
 const orgB = { id: uuid(), slug: `payB-${uuid().slice(0, 8)}` };               // no Stripe account, charges disabled
@@ -268,7 +293,7 @@ describe('charges_enabled guard (#26/O14)', () => {
 // ── #30 purchase → PaymentIntent ─────────────────────────────────────────────
 describe('Guest purchase → PaymentIntent (#30)', () => {
   it('creates a destination charge with the platform application fee', async () => {
-    const r = await apiCall<{ applicationFeeCents: number; credits: number; amountCents: number }>(
+    const r = await apiCall<{ applicationFeeCents: number; credits: number; amountCents: number; paymentIntentId: string }>(
       'POST', `/orgs/${orgA.slug}/credits/purchase`, { bundleId: bundleA, clientRequestId: 'click-1' }, guestCookie,
     );
     expect(r.status).toBe(200);
@@ -283,6 +308,19 @@ describe('Guest purchase → PaymentIntent (#30)', () => {
     expect(last.params.currency).toBe('usd');
     expect((last.params.metadata as { organizationId: string }).organizationId).toBe(orgA.id);
     expect(last.opts!.idempotencyKey).toContain('purchase-');
+
+    const { rows } = await db.query(
+      `SELECT status, amount_cents, currency, credits_granted, stripe_connected_account_id
+       FROM platform_payments WHERE stripe_payment_intent_id = $1`,
+      [r.body.paymentIntentId],
+    );
+    expect(rows[0]).toMatchObject({
+      status: 'pending',
+      amount_cents: 500,
+      currency: 'usd',
+      credits_granted: 5,
+      stripe_connected_account_id: orgA.acct,
+    });
   });
 
   it('rejects an unknown bundle with 404', async () => {
@@ -329,9 +367,11 @@ describe('Stripe webhooks (#23/#34/#37)', () => {
 
   it('#34 payment_intent.succeeded grants credits exactly once (idempotent on replay)', async () => {
     const intentId = `pi_succ_${uuid().slice(0, 8)}`;
+    await seedPendingPurchase(intentId);
     const evt = webhookEvent('payment_intent.succeeded', {
-      id: intentId, latest_charge: `ch_${intentId}`, amount: 500, amount_received: 500, currency: 'usd',
-      metadata: { organizationId: orgA.id, userId: BUYER, bundleId: bundleA, creditsGranted: '5', applicationFeeCents: '50' },
+      id: intentId, status: 'succeeded', latest_charge: `ch_${intentId}`, amount: 500, amount_received: 500, currency: 'usd',
+      transfer_data: { destination: orgA.acct },
+      metadata: { organizationId: orgB.id, userId: ADMIN_USER, bundleId: bundleB, creditsGranted: '5000', applicationFeeCents: '0' },
     }, `evt_${intentId}`);
 
     const r1 = await postWebhook(evt);
@@ -350,15 +390,31 @@ describe('Stripe webhooks (#23/#34/#37)', () => {
     expect(r3.status).toBe(200);
     expect(await getBalance(BUYER, orgA.id)).toBe(5);
 
-    const { rows } = await db.query(`SELECT count(*)::int AS n FROM platform_payments WHERE stripe_payment_intent_id = $1`, [intentId]);
+    const { rows } = await db.query(`SELECT count(*)::int AS n, max(status) AS status FROM platform_payments WHERE stripe_payment_intent_id = $1`, [intentId]);
     expect(rows[0].n).toBe(1);
+    expect(rows[0].status).toBe('succeeded');
+  });
+
+  it('#34 ignores mismatched PaymentIntent amounts without granting credits', async () => {
+    const intentId = `pi_bad_${uuid().slice(0, 8)}`;
+    const before = await getBalance(BUYER, orgA.id);
+    await seedPendingPurchase(intentId);
+    const r = await postWebhook(webhookEvent('payment_intent.succeeded', {
+      id: intentId, status: 'succeeded', latest_charge: `ch_${intentId}`, amount: 999, amount_received: 999, currency: 'usd',
+      transfer_data: { destination: orgA.acct },
+    }));
+    expect(r.status).toBe(200);
+    expect(await getBalance(BUYER, orgA.id)).toBe(before);
+    const { rows } = await db.query(`SELECT status FROM platform_payments WHERE stripe_payment_intent_id = $1`, [intentId]);
+    expect(rows[0].status).toBe('pending');
   });
 
   it('#37 charge.dispute.created flags the PlatformPayment as disputed', async () => {
     const intentId = `pi_disp_${uuid().slice(0, 8)}`;
+    await seedPendingPurchase(intentId);
     await postWebhook(webhookEvent('payment_intent.succeeded', {
-      id: intentId, latest_charge: `ch_${intentId}`, amount: 500, amount_received: 500, currency: 'usd',
-      metadata: { organizationId: orgA.id, userId: BUYER, bundleId: bundleA, creditsGranted: '5', applicationFeeCents: '50' },
+      id: intentId, status: 'succeeded', latest_charge: `ch_${intentId}`, amount: 500, amount_received: 500, currency: 'usd',
+      transfer_data: { destination: orgA.acct },
     }, `evt_${intentId}`));
 
     const disp = await postWebhook(webhookEvent('charge.dispute.created', { id: `dp_${intentId}`, charge: `ch_${intentId}`, payment_intent: intentId }));
@@ -367,8 +423,8 @@ describe('Stripe webhooks (#23/#34/#37)', () => {
     expect(rows[0].status).toBe('disputed');
   });
 
-  it('ignores a PaymentIntent without marketplace metadata', async () => {
-    const r = await postWebhook(webhookEvent('payment_intent.succeeded', { id: `pi_nometa_${uuid().slice(0, 8)}`, amount: 999, currency: 'usd', metadata: {} }));
+  it('ignores a PaymentIntent without a local purchase record', async () => {
+    const r = await postWebhook(webhookEvent('payment_intent.succeeded', { id: `pi_nolocal_${uuid().slice(0, 8)}`, status: 'succeeded', amount: 999, currency: 'usd', metadata: {} }));
     expect(r.status).toBe(200);
   });
 });
