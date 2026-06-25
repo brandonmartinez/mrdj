@@ -63,9 +63,9 @@
 
 ---
 
-### v0.5.0 — Music + Full Multi-Tenant UX
+### v0.5.0 — iTunes Music + Beta Multi-Tenant UX
 
-**Theme:** Real music providers behind the Track abstraction; complete DJ org dashboard and org-branded guest jukebox.
+**Theme:** iTunes-backed live music behind the Track abstraction; beta-ready DJ org dashboard and org-branded guest jukebox.
 
 **Epics**
 - [#9 — Epic 5: Real music providers (O6)](https://github.com/brandonmartinez/mrdj/issues/9)
@@ -73,10 +73,11 @@
 - [#11 — Epic 7: Guest experience (multi-tenant)](https://github.com/brandonmartinez/mrdj/issues/11) *(branded jukebox remainder — stories carry `release:v0.5.0`)*
 
 **Exit criteria**
-- ≥1 real music provider (Apple Music or Spotify) end-to-end; guest can search + request a real track
-- DJ can create an Event, add Areas, operate the per-area console, and configure pricing
+- iTunes Search API end-to-end; guest can search + request a real track. Apple Music (#17) and Spotify (#22) remain post-MVP provider roadmap items.
+- Manager can create Events, add Areas, manage default pricing/credit bundles with zero-credit bundle validation, and operate the `areaId`-correct per-area DJ console
 - Guest can navigate to `/o/{slug}`, join an event, and see the org-branded jukebox
 - Credit balance is org-scoped; area selector works for multi-area events
+- Deferred from beta per #109: email/member invites, explicit lead-DJ selection UI, and per-action price configuration UI
 
 ---
 
@@ -104,7 +105,7 @@
 **Epics**
 - [#15 — Epic 11: Future / backlog](https://github.com/brandonmartinez/mrdj/issues/15)
 
-**Deferred items:** Serato integration, deeper Now Playing, live remix upcharge, native apps, subdomain routing (O12 later), DJ subscription tiers (O16).
+**Deferred items:** email/member invites (#109), explicit lead-DJ selection UI (#109), per-action price configuration UI (#109), Serato integration, deeper Now Playing, live remix upcharge, native apps, subdomain routing (O12 later), DJ subscription tiers (O16), Apple Music (#17), Spotify (#22), multi-replica HA until shared sessions/realtime are implemented.
 
 ---
 

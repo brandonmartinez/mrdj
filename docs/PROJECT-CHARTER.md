@@ -27,8 +27,8 @@ Ship a focused, reliable MVP that runs on the project owner's k3s cluster at
 - A guest can join an event, search a song, and add it to the correct Area queue from a phone.
 - A guest can buy Organization-scoped credits and use them to bump a song to **Up Next**.
 - A guest can purchase the single **Play Next** slot for an Area when available; it resets after the bumped song plays.
-- A DJ can self-serve sign up, create an Organization, onboard via Stripe Connect, and create an Event with at least one Area.
-- A DJ can see the live Area queue update in real time and manage playback order.
+- A DJ can self-serve sign up, create an Organization, onboard via Stripe Connect, and create/manage an Event with at least one Area.
+- A DJ can see the correct live Area queue update in real time and manage playback order.
 - A guest's purchase is split via a platform application fee, with the remainder destined to the Organization's connected account.
 - Organization data is isolated by `organization_id` where relevant.
 - Real-money purchases are verified server-side and never double-credited.
@@ -36,10 +36,10 @@ Ship a focused, reliable MVP that runs on the project owner's k3s cluster at
 
 ## Scope
 
-**In (MVP):** guest access, account via Google SSO, DJ self-serve signup, Organizations, Membership roles (`owner`, `manager`, `dj`, `staff`), org-owned concurrent events, event Areas with per-Area queue + Play Next, song discovery via the iTunes Search API, request-to-queue, Organization-scoped credits/wallet purchase, paid Up Next, premium Play Next (single-slot per Area, resets), realtime DJ console, Stripe Connect Express onboarding + payouts with platform fee, per-Organization pricing/credit bundles with platform defaults, constrained k3s beta deployment, Platform Admin surface.
+**In (MVP/beta):** guest access, account via Google SSO, DJ self-serve signup, Organizations, Membership roles (`owner`, `manager`, `dj`, `staff`), manager-managed org events/Areas, event Areas with per-Area queue + Play Next, song discovery via the iTunes Search API, request-to-queue, Organization-scoped credits/wallet purchase, paid Up Next, premium Play Next (single-slot per Area, resets), area-scoped DJ console with correct `areaId`, Stripe Connect Express onboarding + payouts with platform fee, per-Organization pricing/credit bundles using platform default action pricing, zero-credit bundle validation, constrained k3s beta deployment, Platform Admin surface.
 
 **Out (backlog — captured, not built):** Apple Music (#17) and Spotify (#22) providers, Serato integration, deeper Now-Playing
-integration, live remix of two requested songs (upcharge), native mobile apps, additional SSO providers beyond Google, optional DJ subscription tiers, subdomain tenant routing, Postgres RLS.
+integration, live remix of two requested songs (upcharge), native mobile apps, additional SSO providers beyond Google, optional DJ subscription tiers, subdomain tenant routing, Postgres RLS, multi-replica HA until shared sessions/realtime are implemented, and post-beta admin UX from #109 (email/member invites, explicit lead-DJ selection UI, per-action price configuration UI).
 
 ## Engineering Principles
 

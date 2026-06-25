@@ -21,7 +21,7 @@ DJ curates and stays in control), while each DJ tenant can run its own events an
 | **Account holder** | Google SSO | Everything a guest can do, plus a persistent identity, Organization-scoped credit balances, and history |
 | **Organization** | Tenant | The DJ business; a solo DJ is an Organization of one. Owns its Stripe Connect account, events, pricing, credit bundles, and member roster |
 | **Membership** | Google SSO | User↔Organization link carrying an org role: `owner`, `manager`, `dj` (lead DJ), or `staff` |
-| **Owner / Manager** | Membership | Manage Organization settings, Stripe Connect onboarding, pricing, credit bundles, member invites/roles, and events |
+| **Owner / Manager** | Membership | Manage Organization settings, Stripe Connect onboarding, default pricing, credit bundles, Membership roles, and events; email invites are post-beta |
 | **DJ** | Membership | Lead DJ for assigned events; manage Area queues, playback order, Play Next, and event operations |
 | **Staff** | Membership | Help run assigned event operations with limited permissions |
 | **Platform Admin** | Operator | SaaS operator role for oversight, support, tenant health, and marketplace operations; distinct from any org role |
@@ -32,7 +32,7 @@ The old global DJ administrator assumption is replaced by Organization-scoped Me
 
 - **Organization** — the tenant ("DJ business"; a solo DJ is an Organization of one). Owns its Stripe Connect account, events, pricing, credit bundles, and member roster.
 - **Membership** — a user↔Organization link carrying an org role: `owner` | `manager` | `dj` (lead DJ) | `staff`.
-- **Event** — belongs to exactly one Organization, is assigned a lead DJ, and may run concurrently with other events in the same Organization.
+- **Event** — belongs to exactly one Organization, may carry a lead DJ assignment, and may run concurrently with other events in the same Organization. Explicit lead-DJ selection in the admin UI is post-beta.
 - **Area** — optional subdivision of an Event (zone/stage). Every Event has at least one default Area; single-area events are just an Event with one Area.
 - **Queue** — the ordered list of requested songs for an Area. One authoritative state per Area.
 - **Request** — a guest adding a song to an Area queue (free or low-cost — Open Decision O2).
@@ -52,12 +52,12 @@ Tenant-scoped data should carry `organization_id` where relevant so Organization
 
 ### 4.2 Organization onboarding & Memberships
 - A DJ can self-serve sign up and create an **Organization**.
-- Organization owners/managers can invite members and manage Membership roles: `owner`, `manager`, `dj`, `staff`.
+- Organization owners/managers can manage Membership roles: `owner`, `manager`, `dj`, `staff`. Email/member invite UX is deferred post-beta (#109).
 - Member access is scoped to the Organization; Platform Admin permissions are separate from org roles.
 - Organization data is isolated by `organization_id` where relevant.
 
 ### 4.3 Event and Area setup
-- Owners/managers can create Events under an Organization and assign a lead DJ.
+- Owners/managers can create and manage Events under an Organization. Explicit lead-DJ selection during event creation is deferred post-beta (#109).
 - Multiple Events in the same Organization may run concurrently.
 - Every Event has at least one default Area.
 - Event setup can add multiple Areas for large events split into zones/stages.
@@ -105,7 +105,8 @@ Tenant-scoped data should carry `organization_id` where relevant so Organization
 - Guest credit purchases pay the platform; the platform takes an application fee and the remainder is paid out to the Organization's connected account.
 
 ### 4.11 Per-Organization pricing & bundles
-- Owners/managers can configure Organization pricing and credit bundles, with platform defaults as the recommended MVP baseline (**O9**).
+- Owners/managers can manage Organization pricing and credit bundles using platform default action pricing as the beta baseline (**O9**).
+- Beta scope includes credit-bundle management with zero-credit bundle validation; per-action price configuration UI for `queue`, `boost`, and `play_next` is deferred post-beta (#109).
 - Pricing remains server-authoritative for all paid actions.
 
 ### 4.12 Platform Admin surface
@@ -166,13 +167,17 @@ Deploy to the project owner's **k3s** cluster, mirroring a proven reference app 
 
 ## 10. MVP Scope
 
-**In:** guest access, Google SSO, DJ self-serve signup, Organization creation, Memberships/roles (`owner`, `manager`, `dj`, `staff`), org-owned concurrent Events, default Area per Event, multi-Area events with per-Area queue + Play Next, **iTunes Search API music discovery**, request-to-queue, Organization-scoped credits purchase, paid Up Next, premium Play Next (single-slot + reset per Area), realtime DJ console, Stripe Connect Express onboarding + payouts, per-Organization pricing/bundles with platform defaults, Platform Admin surface, constrained k3s beta deploy.
+**In:** guest access, Google SSO, DJ self-serve signup, Organization creation, Memberships/roles (`owner`, `manager`, `dj`, `staff`), manager-managed org Events/Areas, default Area per Event, multi-Area events with per-Area queue + Play Next, **iTunes Search API music discovery**, request-to-queue, Organization-scoped credits purchase, paid Up Next, premium Play Next (single-slot + reset per Area), area-scoped DJ console with correct `areaId`, Stripe Connect Express onboarding + payouts, per-Organization pricing/bundles with platform default action pricing, zero-credit bundle validation, Platform Admin surface, constrained k3s beta deploy.
 
-**Out (now):** Apple Music (#17) and Spotify (#22) providers, Serato, deeper Now-Playing, live remix, native apps, extra SSO providers, subscription tiers, subdomain routing, Postgres RLS, multi-replica HA until shared sessions/realtime are implemented.
+**Out (now):** Apple Music (#17) and Spotify (#22) providers, email/member invite UX (#109), explicit lead-DJ selection UI (#109), per-action price configuration UI (#109), Serato, deeper Now-Playing, live remix, native apps, extra SSO providers, subscription tiers, subdomain routing, Postgres RLS, multi-replica HA until shared sessions/realtime are implemented.
 
 ## 10.1 MVP scope / beta limitations
 
 The launchable beta is intentionally constrained: one live music provider (iTunes Search API), single-replica operation unless shared sessions/realtime are completed, and paid-anonymous usage only after unique guest identity and Stripe smoke/reconciliation are proven. These constraints are product scope, not the long-term vision.
+
+## 10.2 Deferred from beta (#109)
+
+The 2026-06-24 product review identified admin-UX gaps. For beta, ship the low-cost safety/accuracy fixes (zero-credit bundle validation and hiding the development role-switch) plus the area-scoped DJ console work; defer email/member invites, lead-DJ selection UI, and per-action price configuration UI to post-beta backlog.
 
 ## 11. Backlog / Future Ideas (capture only)
 
@@ -182,6 +187,7 @@ The launchable beta is intentionally constrained: one live music provider (iTune
 - **Optional DJ subscription tiers** (defer; O16).
 - **Subdomain tenant routing** (defer; O12 recommends path-based for MVP).
 - **Postgres RLS** as a later hardening option (O13 recommends app-level scoping for MVP).
+- **Post-beta admin UX from #109:** email/member invites, explicit lead-DJ selection UI, and per-action price configuration UI.
 
 ## 12. Open Decisions
 
