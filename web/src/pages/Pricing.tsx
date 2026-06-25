@@ -55,6 +55,14 @@ export default function Pricing() {
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
+    if (draft.credits + draft.bonusCredits <= 0) {
+      setError('Bundle must include at least one credit.');
+      return;
+    }
+    if (draft.priceCents <= 0) {
+      setError('Bundle price must be greater than zero.');
+      return;
+    }
     setBusy(true); setError(null);
     try {
       if (editing) {

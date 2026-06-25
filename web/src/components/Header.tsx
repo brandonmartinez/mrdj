@@ -29,6 +29,7 @@ export function Header({ eventName, displayName, role, creditBalance, onRoleSwit
   }, []);
 
   const isAdmin = role === 'admin';
+  const showDevControls = Boolean((import.meta as ImportMeta & { env?: { DEV?: boolean } }).env?.DEV);
 
   return (
     <header
@@ -89,30 +90,32 @@ export function Header({ eventName, displayName, role, creditBalance, onRoleSwit
           </div>
 
           {/* Dev role switcher */}
-          <div className="flex rounded-lg overflow-hidden border border-zinc-700">
-            <button
-              onClick={() => void onRoleSwitch('guest')}
-              aria-pressed={!isAdmin}
-              className={`px-2.5 py-1.5 text-xs font-medium transition-colors ${
-                !isAdmin
-                  ? 'bg-violet-700 text-white'
-                  : 'bg-zinc-900 text-zinc-400 hover:bg-zinc-800'
-              }`}
-            >
-              Guest
-            </button>
-            <button
-              onClick={() => void onRoleSwitch('admin')}
-              aria-pressed={isAdmin}
-              className={`px-2.5 py-1.5 text-xs font-medium transition-colors ${
-                isAdmin
-                  ? 'bg-yellow-700 text-white'
-                  : 'bg-zinc-900 text-zinc-400 hover:bg-zinc-800'
-              }`}
-            >
-              Admin
-            </button>
-          </div>
+          {showDevControls && (
+            <div className="flex rounded-lg overflow-hidden border border-zinc-700">
+              <button
+                onClick={() => void onRoleSwitch('guest')}
+                aria-pressed={!isAdmin}
+                className={`px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                  !isAdmin
+                    ? 'bg-violet-700 text-white'
+                    : 'bg-zinc-900 text-zinc-400 hover:bg-zinc-800'
+                }`}
+              >
+                Guest
+              </button>
+              <button
+                onClick={() => void onRoleSwitch('admin')}
+                aria-pressed={isAdmin}
+                className={`px-2.5 py-1.5 text-xs font-medium transition-colors ${
+                  isAdmin
+                    ? 'bg-yellow-700 text-white'
+                    : 'bg-zinc-900 text-zinc-400 hover:bg-zinc-800'
+                }`}
+              >
+                Admin
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </header>

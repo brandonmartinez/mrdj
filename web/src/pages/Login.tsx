@@ -11,6 +11,7 @@ export default function Login() {
   const { refresh } = useSession();
   const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
+  const showDevControls = Boolean((import.meta as ImportMeta & { env?: { DEV?: boolean } }).env?.DEV);
 
   // Dev convenience: act-as an admin account without Google SSO. 403s in prod.
   async function devSignIn() {
@@ -41,17 +42,21 @@ export default function Login() {
           <Button asChild className="w-full">
             <a href="/api/auth/google">Continue with Google</a>
           </Button>
-          <div className="relative py-1">
-            <div className="absolute inset-0 flex items-center">
-              <span className="w-full border-t" />
-            </div>
-            <div className="relative flex justify-center text-xs uppercase">
-              <span className="bg-card px-2 text-muted-foreground">or</span>
-            </div>
-          </div>
-          <Button variant="outline" className="w-full" disabled={busy} onClick={devSignIn}>
-            {busy ? 'Signing in…' : 'Dev sign-in (admin)'}
-          </Button>
+          {showDevControls && (
+            <>
+              <div className="relative py-1">
+                <div className="absolute inset-0 flex items-center">
+                  <span className="w-full border-t" />
+                </div>
+                <div className="relative flex justify-center text-xs uppercase">
+                  <span className="bg-card px-2 text-muted-foreground">or</span>
+                </div>
+              </div>
+              <Button variant="outline" className="w-full" disabled={busy} onClick={devSignIn}>
+                {busy ? 'Signing in…' : 'Dev sign-in (admin)'}
+              </Button>
+            </>
+          )}
         </CardContent>
       </Card>
     </div>

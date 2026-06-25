@@ -110,6 +110,11 @@ export function ConfirmModal({
 
   const handlePurchase = useCallback(async () => {
     if (!selectedBundle) return;
+    if (selectedBundle.credits + selectedBundle.bonusCredits <= 0 || selectedBundle.priceCents <= 0) {
+      setErrorMsg('This bundle is not available. Please choose another bundle.');
+      setPhase('error');
+      return;
+    }
     setPhase('purchasing');
     const clientRequestId = crypto.randomUUID();
     try {
@@ -311,15 +316,21 @@ export function ConfirmModal({
             <div className="p-4 space-y-2.5">
               {bundles.map((b) => {
                 const totalCredits = b.credits + b.bonusCredits;
+                const isValidBundle = totalCredits > 0 && b.priceCents > 0;
+                const pricePerCredit = totalCredits > 0 ? `${(b.priceCents / totalCredits / 100).toFixed(3)}/cr` : 'Invalid bundle';
                 const isSelected = selectedBundle?.id === b.id;
                 return (
                   <button
                     key={b.id}
-                    onClick={() => setSelectedBundle(isSelected ? null : b)}
+                    onClick={() => {
+                      if (isValidBundle) setSelectedBundle(isSelected ? null : b);
+                    }}
+                    disabled={!isValidBundle}
                     className={`w-full flex items-center justify-between p-4 rounded-xl border transition-all text-left ${
                       isSelected
                         ? 'bg-violet-900/50 border-violet-500'
                         : 'bg-zinc-800/60 border-zinc-700 hover:border-zinc-600'
+                    } ${!isValidBundle ? 'cursor-not-allowed opacity-50' : ''
                     }`}
                   >
                     <div>
@@ -342,7 +353,7 @@ export function ConfirmModal({
                     <div className="text-right flex-shrink-0 ml-4">
                       <p className="text-white font-black text-lg">{fmtCents(b.priceCents)}</p>
                       <p className="text-zinc-500 text-xs">
-                        {(b.priceCents / totalCredits / 100).toFixed(3)}/cr
+                        {pricePerCredit}
                       </p>
                     </div>
                   </button>
