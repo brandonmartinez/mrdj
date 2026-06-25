@@ -10,6 +10,9 @@ import type { QueueView } from '../api';
  * view (balances, pricing). We never trust queue data carried in the stream itself.
  *
  *  - EventSource auto-reconnects on drop (native behaviour).
+ *  - Reconnect state-sync (#28): the server replays no missed signals, so on every (re)connect
+ *    `onopen` triggers a full REST re-fetch. This catches any queue:changed signals that fired
+ *    while the connection was down — no missed updates, and the full-view replace means no dups.
  *  - A low-frequency fallback poll (default 15s) covers any missed signal or a stream outage,
  *    so correctness never depends solely on SSE.
  *  - JSON-diff dedup avoids re-rendering when nothing actually changed.
@@ -48,11 +51,18 @@ export function useQueueStream(
     const onSignal = () => { void fetchQueue(); };
     es.addEventListener('queue', onSignal);
 
+    // Reconnect state-sync (#28): EventSource fires `onopen` on the initial connect AND after
+    // every automatic reconnect. Re-fetching here closes the gap for any signals missed while
+    // the stream was down (the server replays nothing). The initial-connect double-fetch is a
+    // no-op thanks to JSON-diff dedup.
+    es.onopen = () => { void fetchQueue(); };
+
     // Fallback poll — resilience if the stream is unavailable or a signal is missed.
     const fallback = setInterval(() => { void fetchQueue(); }, fallbackMs);
 
     return () => {
       es.removeEventListener('queue', onSignal);
+      es.onopen = null;
       es.close();
       clearInterval(fallback);
     };

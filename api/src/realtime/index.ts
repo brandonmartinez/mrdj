@@ -72,6 +72,11 @@ export async function streamHandler(req: Request, res: Response): Promise<void> 
   });
   res.flushHeaders?.();
 
+  // Tell the browser how soon to reconnect after a drop (#28). Without this the UA picks an
+  // arbitrary default; a fixed 3s keeps the reconnect window short and deterministic. On
+  // reconnect the client re-fetches the full queue (EventSource.onopen), so nothing is missed.
+  res.write('retry: 3000\n\n');
+
   // Initial hello so the client knows the stream is live.
   res.write(`event: hello\ndata: ${JSON.stringify({ eventId: event.id, areaId, at: new Date().toISOString() })}\n\n`);
 
