@@ -1,5 +1,7 @@
 // Owner: Rusty (middleware)
 import type { Request, Response, NextFunction, RequestHandler } from 'express';
+import { eq, sql } from 'drizzle-orm';
+import { db, guestSessions, users } from '../db/index.js';
 import {
   getOrgBySlug, getMembershipForUser, roleSatisfies,
   type OrgRole, type OrganizationRow, type MembershipRow,
@@ -23,15 +25,48 @@ export const SEED_IDS = {
   demoEventId: '00000000-0000-0000-0000-000000000010',
 } as const;
 
-/** Auto-init session to seeded guest when no session exists (dev convenience). */
-export function initSession(req: Request, _res: Response, next: NextFunction) {
-  if (!req.session.userId) {
-    req.session.userId      = SEED_IDS.guestUser;
-    req.session.role        = 'guest';
-    req.session.type        = 'guest';
-    req.session.displayName = 'Guest User';
+async function getOrCreateGuestUser(sessionToken: string): Promise<string> {
+  const [existing] = await db
+    .select({ userId: guestSessions.userId })
+    .from(guestSessions)
+    .where(eq(guestSessions.sessionToken, sessionToken))
+    .limit(1);
+  if (existing) return existing.userId;
+
+  try {
+    return await db.transaction(async (tx) => {
+      const [user] = await tx.insert(users).values({ type: 'guest' }).returning({ id: users.id });
+      await tx.insert(guestSessions).values({
+        userId:       user.id,
+        sessionToken,
+        expiresAt:    sql`now() + interval '7 days'`,
+      });
+      return user.id;
+    });
+  } catch (err) {
+    const [raced] = await db
+      .select({ userId: guestSessions.userId })
+      .from(guestSessions)
+      .where(eq(guestSessions.sessionToken, sessionToken))
+      .limit(1);
+    if (raced) return raced.userId;
+    throw err;
   }
-  next();
+}
+
+/** Auto-init anonymous sessions to a per-browser guest identity. */
+export async function initSession(req: Request, _res: Response, next: NextFunction) {
+  try {
+    if (!req.session.userId) {
+      req.session.userId      = await getOrCreateGuestUser(req.sessionID);
+      req.session.role        = 'guest';
+      req.session.type        = 'guest';
+      req.session.displayName = 'Guest User';
+    }
+    next();
+  } catch (err) {
+    next(err);
+  }
 }
 
 /** Guard: require admin role. Returns 403 if not admin. */

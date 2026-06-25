@@ -21,6 +21,8 @@ const DB_URL    = process.env.DATABASE_URL ?? 'postgresql://mrdj:mrdj@localhost:
 const db        = new Pool({ connectionString: DB_URL, max: 5 });
 
 const GUEST_USER = '00000000-0000-0000-0000-000000000003';
+const DEFAULT_ORG = '00000000-0000-0000-0000-000000000050';
+const TRACK_CL = '00000000-0000-0000-0000-000000000101';
 
 interface ApiResponse<T = unknown> { status: number; body: T; setCookie: string | null; }
 
@@ -125,6 +127,48 @@ describe('Epic 3 — SSO account lifecycle (#81/#87)', () => {
     expect(me.status).toBe(200);
     expect(me.body.user.type).toBe('account');
     expect(me.body.user.role).toBe('dj');
+  });
+});
+
+
+describe('Guest identity isolation', () => {
+  it('creates distinct anonymous users and isolates their org wallets', async () => {
+    const a = await apiCall<{ user: { id: string }, creditBalance: number }>('GET', '/me');
+    const b = await apiCall<{ user: { id: string }, creditBalance: number }>('GET', '/me');
+    const aCookie = cookieOf(a);
+    const bCookie = cookieOf(b);
+
+    expect(a.status).toBe(200);
+    expect(b.status).toBe(200);
+    expect(a.body.user.id).not.toBe(GUEST_USER);
+    expect(b.body.user.id).not.toBe(GUEST_USER);
+    expect(a.body.user.id).not.toBe(b.body.user.id);
+    expect(aCookie).toBeTruthy();
+    expect(bCookie).toBeTruthy();
+
+    await db.query(
+      `INSERT INTO wallets (user_id, organization_id, balance)
+       VALUES ($1, $3, 5), ($2, $3, 9)
+       ON CONFLICT (user_id, organization_id) DO UPDATE SET balance = EXCLUDED.balance`,
+      [a.body.user.id, b.body.user.id, DEFAULT_ORG],
+    );
+
+    const spend = await apiCall<{ creditBalance: number }>(
+      'POST',
+      '/events/demo/requests',
+      { trackId: TRACK_CL, tier: 'boost', idempotencyKey: `guest-iso-${uuid()}` },
+      aCookie,
+    );
+    expect(spend.status).toBe(201);
+    expect(spend.body.creditBalance).toBe(4);
+
+    const { rows } = await db.query(
+      `SELECT user_id, balance FROM wallets WHERE user_id = ANY($1::uuid[]) AND organization_id = $2`,
+      [[a.body.user.id, b.body.user.id], DEFAULT_ORG],
+    );
+    const balances = Object.fromEntries(rows.map((r) => [r.user_id, r.balance]));
+    expect(balances[a.body.user.id]).toBe(4);
+    expect(balances[b.body.user.id]).toBe(9);
   });
 });
 
