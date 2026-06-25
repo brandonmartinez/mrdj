@@ -218,15 +218,20 @@ describe('Epic 3 — guest → account credit merge (#89)', () => {
     const email = `mergedj-${uuid().slice(0, 8)}@example.com`;
     createdEmails.push(email);
     const r = await loginAs({ providerId: `g-${email}`, email, displayName: 'Merge DJ' }, guestCookie);
+    const accountCookie = cookieOf(r);
 
     expect(r.status).toBe(200);
+    expect(accountCookie).toBeTruthy();
+    expect(accountCookie).not.toBe(guestCookie);
     expect(r.body.mergedCredits).toBe(7);
 
     // Guest wallet drained; account wallet credited.
     const { rows: guestRows } = await db.query(`SELECT balance FROM wallets WHERE user_id = $1`, [GUEST_USER]);
     expect(guestRows[0].balance).toBe(0);
 
-    const me = await apiCall<{ creditBalance: number }>('GET', '/me', undefined, cookieOf(r));
+    const me = await apiCall<{ creditBalance: number; user: { type: string } }>('GET', '/me', undefined, accountCookie);
+    expect(me.status).toBe(200);
+    expect(me.body.user.type).toBe('account');
     expect(me.body.creditBalance).toBe(7);
   });
 });

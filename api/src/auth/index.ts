@@ -8,6 +8,15 @@ import { GoogleAuthProvider } from './google.js';
 import { StubAuthProvider } from './stub.js';
 import { loginWithProfile } from './service.js';
 
+function regenerateSession(req: Request): Promise<void> {
+  return new Promise((resolve, reject) => {
+    req.session.regenerate((err) => {
+      if (err) reject(err);
+      else resolve();
+    });
+  });
+}
+
 /**
  * Select the active auth provider. Real Google when credentials are configured;
  * otherwise the dev stub — which is refused outside development so production can
@@ -74,7 +83,9 @@ export async function authCallbackHandler(req: Request, res: Response) {
 
   const result = await loginWithProfile(profile, { guestUserId });
 
-  // Establish the authenticated session.
+  await regenerateSession(req);
+
+  // Establish the authenticated session in the fresh session.
   req.session.userId         = result.userId;
   req.session.role           = result.role;
   req.session.type           = 'account';
