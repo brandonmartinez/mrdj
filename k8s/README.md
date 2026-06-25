@@ -180,7 +180,7 @@ This deployment closely follows the structure of an existing reference app on th
 4. **Secrets provisioning** — generate real `.env.secret.temp` values and apply (Virgil + team)
 5. **Resolve Open Decisions:**
    - **O1:** Payment provider config (Frank)
-   - **O5:** Confirm manifest location (this repo vs cluster repo) — see decision inbox
+   - **O5:** Manifest location — RESOLVED, see `docs/decisions/manifests-location.md` (cluster repo canonical; author/validate in `k8s/`, promote at launch)
    - **O3:** WebSocket/SSE config (Basher)
    - **O6:** Music provider scope (Livingston + Saul)
 
@@ -211,4 +211,5 @@ kubectl logs -n mrdj -l app=mrdj --tail=100
 - **Pattern source:** an existing reference app's manifests in the cluster infrastructure repo
 - **Shared DB:** the cluster's shared-database (`data` namespace) manifests
 - **Decision log:** `.squad/decisions.md` (D2 deployment, O5 manifest location)
+- **Manifests location (O5):** `docs/decisions/manifests-location.md` — cluster repo is canonical for what's deployed; `k8s/` is the authoring + validation copy during MVP, promoted at go-live.
 - **Requirements:** `docs/REQUIREMENTS.md` §9 Deployment & Infrastructure
