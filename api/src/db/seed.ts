@@ -23,6 +23,7 @@ const IDS = {
   guestWallet:   '00000000-0000-0000-0000-000000000020',
   adminWallet:   '00000000-0000-0000-0000-000000000021',
   ctGuestInit:   '00000000-0000-0000-0000-000000000030',
+  ctAdminInit:   '00000000-0000-0000-0000-000000000031',
   bundleStarter: '00000000-0000-0000-0000-000000000040',
   bundleParty:   '00000000-0000-0000-0000-000000000041',
   bundleVip:     '00000000-0000-0000-0000-000000000042',
@@ -181,7 +182,7 @@ async function seed() {
         { id: IDS.adminWallet, userId: IDS.adminUser, organizationId: IDS.defaultOrg, balance: 100 },
       ]).onConflictDoNothing({ target: wallets.id });
 
-      // Credit ledger entry for guest initial balance (idempotency_key prevents re-grant)
+      // Credit ledger entries for seeded wallet balances (idempotency_key prevents re-grant)
       await tx.insert(creditTransactions).values({
         id:             IDS.ctGuestInit,
         userId:         IDS.guestUser,
@@ -191,6 +192,24 @@ async function seed() {
         amount:         2,
         reason:         'promo',
         idempotencyKey: 'seed:guest-initial-2-credits',
+      }).onConflictDoNothing({
+        target: [
+          creditTransactions.userId,
+          creditTransactions.organizationId,
+          creditTransactions.operationNamespace,
+          creditTransactions.idempotencyKey,
+        ],
+      });
+
+      await tx.insert(creditTransactions).values({
+        id:             IDS.ctAdminInit,
+        userId:         IDS.adminUser,
+        organizationId: IDS.defaultOrg,
+        operationNamespace: 'grant:seed',
+        type:           'grant',
+        amount:         100,
+        reason:         'seed',
+        idempotencyKey: 'seed:admin-initial-100-credits',
       }).onConflictDoNothing({
         target: [
           creditTransactions.userId,

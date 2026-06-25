@@ -46,6 +46,7 @@ const db     = new Pool({ connectionString: DB_URL, max: 5 });
 const GUEST_USER    = '00000000-0000-0000-0000-000000000003';
 const ADMIN_ACCOUNT = '00000000-0000-0000-0000-000000000002';
 const ADMIN_USER    = '00000000-0000-0000-0000-000000000001';
+const DEFAULT_ORG   = '00000000-0000-0000-0000-000000000050';
 const SEED_TRACK    = '00000000-0000-0000-0000-000000000101';
 
 // ── HTTP helpers ──────────────────────────────────────────────────────────────
@@ -635,6 +636,14 @@ describe('Cross-org credit spend rejection (#55)', () => {
 
 // ── Wallet/ledger reconciliation ─────────────────────────────────────────────
 describe('Wallet ledger reconciliation', () => {
+  it('seeded admin wallet reconciles with its grant ledger row', async () => {
+    await expect(assertWalletLedgerReconciled(ADMIN_USER, DEFAULT_ORG)).resolves.toMatchObject({
+      walletBalance: 100,
+      ledgerBalance: 100,
+      reconciled: true,
+    });
+  });
+
   it('detects mutable wallet drift from the append-only ledger', async () => {
     const u = uuid();
     await db.query(`INSERT INTO users (id, type) VALUES ($1,'guest')`, [u]);
