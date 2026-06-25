@@ -3,7 +3,7 @@ import type { Request, Response } from 'express';
 import { eq } from 'drizzle-orm';
 import { db, users } from '../db/index.js';
 import { grantCredits } from '../credits/service.js';
-import { getDefaultOrgId } from '../org/index.js';
+import { getDefaultOrgId, getMembershipForUser, roleSatisfies } from '../org/index.js';
 import { getEventBySlug } from '../event/index.js';
 import {
   advanceQueue,
@@ -14,6 +14,28 @@ import {
 } from '../queue/index.js';
 import { publishAll } from '../realtime/index.js';
 import { sendError } from '../http/middleware.js';
+
+async function requireConsoleDj(req: Request, res: Response, event: NonNullable<Awaited<ReturnType<typeof getEventBySlug>>>): Promise<boolean> {
+  const userId = req.session.userId;
+  if (!userId) {
+    sendError(res, 403, 'forbidden', 'Authentication required');
+    return false;
+  }
+  const membership = await getMembershipForUser(event.organization_id, userId);
+  if (!membership || !roleSatisfies(membership.role, 'dj')) {
+    sendError(res, 403, 'forbidden', 'Requires DJ or manager role in this event organization');
+    return false;
+  }
+  return true;
+}
+
+function bodyAreaId(req: Request): string | undefined {
+  return typeof req.body?.areaId === 'string' ? req.body.areaId : undefined;
+}
+
+function queryAreaId(req: Request): string | undefined {
+  return typeof req.query.areaId === 'string' ? req.query.areaId : undefined;
+}
 
 // ── POST /api/admin/credits/grant ─────────────────────────────────────────────
 // Grants credits to any user. Audited via credit_transactions (reason='admin_grant',
@@ -83,9 +105,10 @@ export async function adminReorderHandler(req: Request, res: Response) {
     sendError(res, 404, 'not_found', `Event '${slug}' not found`);
     return;
   }
+  if (!(await requireConsoleDj(req, res, event))) return;
 
   try {
-    const queueView = await reorderQueueItem(event.id, queueItemId, direction, req.session.userId!);
+    const queueView = await reorderQueueItem(event.id, queueItemId, direction, req.session.userId!, bodyAreaId(req));
     res.json({ queueView });
   } catch (err) {
     if (err instanceof QueueError) {
@@ -113,9 +136,10 @@ export async function adminRemoveHandler(req: Request, res: Response) {
     sendError(res, 404, 'not_found', `Event '${slug}' not found`);
     return;
   }
+  if (!(await requireConsoleDj(req, res, event))) return;
 
   try {
-    const { queueView, refund } = await removeQueueItem(event.id, event.organization_id, queueItemId, req.session.userId!);
+    const { queueView, refund } = await removeQueueItem(event.id, event.organization_id, queueItemId, req.session.userId!, bodyAreaId(req));
     res.json({ queueView, refund });
   } catch (err) {
     if (err instanceof QueueError) {
@@ -137,8 +161,9 @@ export async function adminStatsHandler(req: Request, res: Response) {
     sendError(res, 404, 'not_found', `Event '${slug}' not found`);
     return;
   }
+  if (!(await requireConsoleDj(req, res, event))) return;
 
-  const stats = await getEventStats(event.id);
+  const stats = await getEventStats(event.id, queryAreaId(req));
   res.json({ stats });
 }
 
@@ -148,13 +173,14 @@ export async function adminStatsHandler(req: Request, res: Response) {
 // Requires admin role (enforced in routes.ts via requireAdmin middleware).
 export async function adminAdvanceHandler(req: Request, res: Response) {
   const { slug } = req.params;
-  const areaId = typeof req.body?.areaId === 'string' ? req.body.areaId : undefined;
+  const areaId = bodyAreaId(req);
 
   const event = await getEventBySlug(slug);
   if (!event) {
     sendError(res, 404, 'not_found', `Event '${slug}' not found`);
     return;
   }
+  if (!(await requireConsoleDj(req, res, event))) return;
 
   const userId   = req.session.userId!;
   try {

@@ -14,6 +14,7 @@ import { describe, it, beforeAll, afterAll, beforeEach, expect } from 'vitest';
 import { Pool } from 'pg';
 import { v4 as uuid } from 'uuid';
 import { createApp } from '../http/server.js';
+import { StubAuthProvider } from '../auth/stub.js';
 import type { Server } from 'node:http';
 
 const TEST_PORT = 3996;
@@ -25,6 +26,8 @@ const db     = new Pool({ connectionString: DB_URL, max: 5 });
 const GUEST_USER = '00000000-0000-0000-0000-000000000003';
 const ADMIN_USER = '00000000-0000-0000-0000-000000000001';
 const DEMO_EVENT = '00000000-0000-0000-0000-000000000010';
+const DEFAULT_ORG = '00000000-0000-0000-0000-000000000050';
+const DEMO_AREA = '00000000-0000-0000-0000-000000000052';
 
 // Seeded tracks not already playing/queued-by-default that tests can freely queue.
 const TRACK_CL = '00000000-0000-0000-0000-000000000101';
@@ -52,6 +55,23 @@ async function apiCall<T = unknown>(
 async function getSession(role: 'guest' | 'admin'): Promise<string> {
   const r = await apiCall('POST', '/dev/act-as', { role });
   return r.setCookie?.split(';')[0] ?? '';
+}
+
+async function loginDj(email: string): Promise<string> {
+  const code = StubAuthProvider.encode({ providerId: `console-${email}`, email, displayName: 'Console DJ' });
+  const r = await apiCall('GET', `/auth/google/callback?format=json&code=${code}`);
+  expect(r.status).toBe(200);
+  return r.setCookie?.split(';')[0] ?? '';
+}
+
+async function addDemoMembership(email: string, role: 'dj' | 'manager' = 'dj') {
+  const { rows } = await db.query(`SELECT id FROM accounts WHERE email = $1`, [email]);
+  await db.query(
+    `INSERT INTO memberships (organization_id, account_id, role)
+     VALUES ($1, $2, $3)
+     ON CONFLICT (organization_id, account_id) DO UPDATE SET role = EXCLUDED.role`,
+    [DEFAULT_ORG, rows[0].id, role],
+  );
 }
 
 let server: Server;
@@ -141,6 +161,19 @@ describe('AR · Admin RBAC on console endpoints', () => {
     expect(g.status).toBe(403);
     const a = await apiCall('GET', '/admin/events/demo/stats', undefined, adminCookie);
     expect(a.status).toBe(200);
+  });
+
+  it('denies a DJ from another org and allows an org DJ', async () => {
+    const wrongEmail = `wrong-org-${uuid()}@example.com`;
+    const wrongCookie = await loginDj(wrongEmail);
+    const wrong = await apiCall('GET', '/admin/events/demo/stats', undefined, wrongCookie);
+    expect(wrong.status).toBe(403);
+
+    const djEmail = `demo-dj-${uuid()}@example.com`;
+    const djCookie = await loginDj(djEmail);
+    await addDemoMembership(djEmail, 'dj');
+    const allowed = await apiCall('GET', '/admin/events/demo/stats', undefined, djCookie);
+    expect(allowed.status).toBe(200);
   });
 });
 
@@ -317,5 +350,40 @@ describe('H-01 · Concurrent spend never 500s and never overspends', () => {
     const bal = await balance(GUEST_USER);
     expect(bal).toBe(0);
     expect(bal).toBeGreaterThanOrEqual(0); // CHECK never violated into negative
+  });
+
+  describe('Console area scoping', () => {
+    beforeEach(resetState);
+
+    it('advances the selected area without advancing the default area', async () => {
+      const created = await apiCall<{ area: { id: string } }>(
+        'POST', '/orgs/demo/events/demo/areas', { name: `Side Room ${uuid().slice(0, 6)}` }, adminCookie,
+      );
+      expect(created.status).toBe(201);
+      const areaId = created.body.area.id;
+
+      const queued = await apiCall<{ queueItem: { id: string } }>(
+        'POST', '/events/demo/requests',
+        { trackId: TRACK_CL, tier: 'queue', idempotencyKey: `area-admin-${uuid()}`, areaId },
+        guestCookie,
+      );
+      expect(queued.status).toBe(201);
+
+      const advanced = await apiCall<{ queueView: { areaId: string; nowPlaying: { id: string } | null } }>(
+        'POST', '/admin/events/demo/advance', { areaId }, adminCookie,
+      );
+      expect(advanced.status).toBe(200);
+      expect(advanced.body.queueView.areaId).toBe(areaId);
+      expect(advanced.body.queueView.nowPlaying?.id).toBe(queued.body.queueItem.id);
+
+      const def = await apiCall<{ nowPlaying: { id: string } | null }>('GET', '/events/demo/queue', undefined, guestCookie);
+      expect(def.status).toBe(200);
+      expect(def.body.nowPlaying?.id).toBe('00000000-0000-0000-0000-000000000205');
+
+      await db.query(`DELETE FROM credit_transactions WHERE reference_id IN (SELECT id FROM queue_items WHERE area_id = $1)`, [areaId]);
+      await db.query(`DELETE FROM queue_items WHERE area_id = $1`, [areaId]);
+      await db.query(`DELETE FROM areas WHERE id = $1`, [areaId]);
+      await db.query(`DELETE FROM play_next_slot WHERE area_id = $1`, [areaId]).catch(() => {});
+    });
   });
 });

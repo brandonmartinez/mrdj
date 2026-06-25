@@ -139,10 +139,10 @@ export function registerRoutes(app: Express) {
 
   // ── Admin (Basher implements) ─────────────────────────────────────────────
   app.post('/api/admin/credits/grant',          requireAdmin, asyncHandler(adminGrantHandler));
-  app.post('/api/admin/events/:slug/advance',   requireAdmin, asyncHandler(adminAdvanceHandler));
-  app.post('/api/admin/events/:slug/reorder',   requireAdmin, asyncHandler(adminReorderHandler));
-  app.post('/api/admin/events/:slug/remove',    requireAdmin, asyncHandler(adminRemoveHandler));
-  app.get('/api/admin/events/:slug/stats',      requireAdmin, asyncHandler(adminStatsHandler));
+  app.post('/api/admin/events/:slug/advance',   asyncHandler(adminAdvanceHandler));
+  app.post('/api/admin/events/:slug/reorder',   asyncHandler(adminReorderHandler));
+  app.post('/api/admin/events/:slug/remove',    asyncHandler(adminRemoveHandler));
+  app.get('/api/admin/events/:slug/stats',      asyncHandler(adminStatsHandler));
 
   // ── Platform admin (#76) ──────────────────────────────────────────────────
   app.get('/api/admin/platform/orgs', requirePlatformAdmin, asyncHandler(listPlatformOrgsHandler));

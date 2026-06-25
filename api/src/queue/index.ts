@@ -622,7 +622,9 @@ export async function removeQueueItem(
   organizationId: string,
   queueItemId: string,
   adminUserId: string,
+  areaId?: string,
 ): Promise<RemoveResult> {
+  const targetAreaId = await resolveAreaId(eventId, areaId);
   const result = await db.transaction(async (tx) => {
     const [item] = await tx
       .select({
@@ -633,7 +635,7 @@ export async function removeQueueItem(
         requesterId: queueItems.requesterId,
       })
       .from(queueItems)
-      .where(and(eq(queueItems.id, queueItemId), eq(queueItems.eventId, eventId)))
+      .where(and(eq(queueItems.id, queueItemId), eq(queueItems.eventId, eventId), eq(queueItems.areaId, targetAreaId)))
       .for('update');
 
     if (!item) {
@@ -713,17 +715,19 @@ export async function reorderQueueItem(
   queueItemId: string,
   direction:   'up' | 'down',
   adminUserId: string,
+  areaId?: string,
 ): Promise<QueueView> {
   if (direction !== 'up' && direction !== 'down') {
     throw new QueueError('validation', "direction must be 'up' or 'down'", 400);
   }
 
+  const targetAreaId = await resolveAreaId(eventId, areaId);
   const outcome = await db.transaction(async (tx) => {
     // Resolve the target's area first so the whole reorder stays within one area's queue.
     const [target0] = await tx
       .select({ areaId: queueItems.areaId })
       .from(queueItems)
-      .where(and(eq(queueItems.id, queueItemId), eq(queueItems.eventId, eventId)))
+      .where(and(eq(queueItems.id, queueItemId), eq(queueItems.eventId, eventId), eq(queueItems.areaId, targetAreaId)))
       .limit(1);
     if (!target0) {
       throw new QueueError('not_found', 'Pending queue item not found', 404);
@@ -781,7 +785,8 @@ export interface EventStats {
   topRequesters:    { userId: string; displayName: string; requests: number; spent: number }[];
 }
 
-export async function getEventStats(eventId: string): Promise<EventStats> {
+export async function getEventStats(eventId: string, areaId?: string): Promise<EventStats> {
+  const targetAreaId = await resolveAreaId(eventId, areaId);
   // These read-only aggregates (FILTER, EXISTS, window-free GROUP BY) are clearest as raw SQL.
   // They run through the Drizzle executor (db.execute), so there are no remaining pool.query calls.
   const [counts, spend, refunded, playNext, pnPurchased, topRequesters] = await Promise.all([
@@ -794,27 +799,27 @@ export async function getEventStats(eventId: string): Promise<EventStats> {
             WHERE ct.reference_id = qi.id AND ct.type = 'spend' AND ct.amount > 0
           )
         ) AS paid_request_count
-      FROM queue_items qi WHERE qi.event_id = ${eventId}`),
+      FROM queue_items qi WHERE qi.area_id = ${targetAreaId}`),
     db.execute(sql`
       SELECT COALESCE(SUM(ct.amount), 0) AS spent
       FROM credit_transactions ct
       JOIN queue_items qi ON qi.id = ct.reference_id
-      WHERE qi.event_id = ${eventId} AND ct.type = 'spend' AND ct.amount > 0`),
+      WHERE qi.area_id = ${targetAreaId} AND ct.type = 'spend' AND ct.amount > 0`),
     db.execute(sql`
       SELECT COALESCE(SUM(ct.amount), 0) AS refunded
       FROM credit_transactions ct
       JOIN queue_items qi ON qi.id = ct.reference_id
-      WHERE qi.event_id = ${eventId} AND ct.type = 'refund'`),
+      WHERE qi.area_id = ${targetAreaId} AND ct.type = 'refund'`),
     db.execute(sql`
       SELECT pns.status FROM play_next_slot pns
       JOIN areas a ON a.id = pns.area_id
-      WHERE pns.event_id = ${eventId}
+      WHERE pns.area_id = ${targetAreaId}
       ORDER BY a.is_default DESC LIMIT 1`),
     db.execute(sql`
       SELECT COUNT(*) AS purchased
       FROM credit_transactions ct
       JOIN queue_items qi ON qi.id = ct.reference_id
-      WHERE qi.event_id = ${eventId} AND ct.reason = 'play_next' AND ct.type = 'spend'`),
+      WHERE qi.area_id = ${targetAreaId} AND ct.reason = 'play_next' AND ct.type = 'spend'`),
     db.execute(sql`
       SELECT qi.requester_id AS user_id,
              COALESCE(a.display_name, 'Guest') AS display_name,
@@ -823,7 +828,7 @@ export async function getEventStats(eventId: string): Promise<EventStats> {
       FROM queue_items qi
       LEFT JOIN accounts a ON a.user_id = qi.requester_id
       LEFT JOIN credit_transactions ct ON ct.reference_id = qi.id
-      WHERE qi.event_id = ${eventId}
+      WHERE qi.area_id = ${targetAreaId}
       GROUP BY qi.requester_id, a.display_name
       ORDER BY requests DESC, spent DESC
       LIMIT 5`),
