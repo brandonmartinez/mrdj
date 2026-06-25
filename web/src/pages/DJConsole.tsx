@@ -7,7 +7,6 @@ import { AdminConsole } from '../components/AdminConsole';
 import { Toast } from '../components/Toast';
 import type { ToastState } from '../components/Toast';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Badge } from '@/components/ui/badge';
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
@@ -17,6 +16,7 @@ export default function DJConsole() {
   const [queueView, setQueueView] = useState<QueueView | null>(null);
   const [areas, setAreas] = useState<OrgArea[]>([]);
   const [areaId, setAreaId] = useState<string>('');
+  const [queueError, setQueueError] = useState<string | null>(null);
   const toastCounter = useRef(0);
   const [toast, setToast] = useState<ToastState | null>(null);
 
@@ -37,7 +37,19 @@ export default function DJConsole() {
     if (def) setAreaId(def.id);
   }
 
-  useQueueStream(eventSlug, setQueueView);
+  const queueStream = useQueueStream(
+    eventSlug,
+    (view) => {
+      setQueueView(view);
+      setQueueError(null);
+    },
+    undefined,
+    areaId || undefined,
+    {
+      onInitialError: (err) => setQueueError(err instanceof Error ? err.message : 'Could not load queue'),
+      onInitialSuccess: () => setQueueError(null),
+    },
+  );
 
   return (
     <div className="space-y-6">
@@ -63,15 +75,22 @@ export default function DJConsole() {
         )}
       </div>
 
-      {areas.length > 1 && (
-        <p className="rounded-md border border-amber-500/40 bg-amber-500/5 px-3 py-2 text-xs text-muted-foreground">
-          <Badge variant="outline" className="mr-2">Beta</Badge>
-          This event has multiple areas, but the live queue is currently shared across the event.
-          Per-area queue routing is coming soon.
-        </p>
-      )}
-
-      {!queueView ? (
+      {queueError ? (
+        <div className="rounded-md border border-destructive/40 bg-destructive/5 px-4 py-3">
+          <p className="text-sm font-medium text-destructive">Could not load queue</p>
+          <p className="mt-1 text-xs text-muted-foreground">{queueError}</p>
+          <button
+            type="button"
+            className="mt-3 rounded-md border px-3 py-1.5 text-xs font-medium hover:bg-accent"
+            onClick={() => {
+              setQueueError(null);
+              void queueStream.retry();
+            }}
+          >
+            Retry
+          </button>
+        </div>
+      ) : !queueView ? (
         <div className="space-y-3">
           <Skeleton className="h-24 w-full" />
           <Skeleton className="h-64 w-full" />
@@ -82,8 +101,9 @@ export default function DJConsole() {
           queueView={queueView}
           guestUserId={null}
           onQueueUpdated={setQueueView}
-          onCreditsGranted={() => { void api.queue(eventSlug).then(setQueueView); }}
+          onCreditsGranted={() => { void api.queue(eventSlug, areaId || undefined).then(setQueueView); }}
           showToast={showToast}
+          areaId={areaId || undefined}
         />
       )}
 

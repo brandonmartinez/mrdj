@@ -29,6 +29,7 @@ export default function GuestJukebox() {
   const [bundles, setBundles] = useState<Bundle[]>([]);
   const [loading, setLoading] = useState(true);
   const [apiError, setApiError] = useState<string | null>(null);
+  const [queueError, setQueueError] = useState<string | null>(null);
 
   // Per-area queue (#70/#91): the roster of areas + the one the guest is viewing.
   // undefined selection = the event's default area (server-resolved).
@@ -97,20 +98,33 @@ export default function GuestJukebox() {
   const handleQueueUpdate = useCallback((view: QueueView) => {
     setQueueView(view);
     setCreditBalance(view.creditBalance);
+    setQueueError(null);
     setLoading(false);
   }, []);
 
-  useQueueStream(eventSlug, handleQueueUpdate, undefined, selectedAreaId);
+  const queueStream = useQueueStream(eventSlug, handleQueueUpdate, undefined, selectedAreaId, {
+    onInitialError: (err) => {
+      setQueueError(err instanceof Error ? err.message : 'Could not load queue');
+      setLoading(false);
+    },
+    onInitialSuccess: () => setQueueError(null),
+  });
 
   // ── Search ──────────────────────────────────────────────────────────────────
   useEffect(() => {
     // Cancel any in-flight request
     abortRef.current?.abort();
+    const q = debouncedQuery.trim();
+    if (!q) {
+      setSearchBusy(false);
+      setSearchResults([]);
+      return;
+    }
     const ctrl = new AbortController();
     abortRef.current = ctrl;
 
     setSearchBusy(true);
-    api.search(debouncedQuery, ctrl.signal)
+    api.search(q, ctrl.signal)
       .then((data) => {
         setSearchResults(data.results);
         setSearchBusy(false);
@@ -178,16 +192,32 @@ export default function GuestJukebox() {
     );
   }
 
-  if (apiError) {
+  if (apiError || queueError) {
+    const message = apiError ?? queueError ?? 'Unknown error';
     return (
       <div className="flex h-screen items-center justify-center bg-black p-6">
         <div className="rounded-2xl bg-red-950/40 border border-red-800 p-6 max-w-md text-center">
           <p className="text-2xl mb-3">⚠️</p>
-          <p className="text-red-300 font-semibold mb-2">Could not connect to API</p>
-          <p className="text-red-400 text-sm">{apiError}</p>
-          <p className="text-zinc-600 text-xs mt-3">
-            Make sure the backend is running: <code className="bg-zinc-900 px-1 py-0.5 rounded">npm run dev</code>
+          <p className="text-red-300 font-semibold mb-2">
+            {queueError ? 'Could not load the queue' : 'Could not connect to API'}
           </p>
+          <p className="text-red-400 text-sm">{message}</p>
+          <button
+            type="button"
+            className="mt-4 rounded-lg bg-red-800 px-4 py-2 text-sm font-semibold text-white hover:bg-red-700"
+            onClick={() => {
+              setApiError(null);
+              setQueueError(null);
+              if (queueError) {
+                setLoading(true);
+                void queueStream.retry();
+              } else {
+                window.location.reload();
+              }
+            }}
+          >
+            {queueError ? 'Retry queue' : 'Reload'}
+          </button>
         </div>
       </div>
     );
@@ -229,6 +259,7 @@ export default function GuestJukebox() {
               void api.me().then((m) => setCreditBalance(m.creditBalance)).catch(() => {});
             }}
             showToast={showToast}
+            areaId={selectedAreaId}
           />
         </main>
       ) : (
@@ -310,13 +341,13 @@ export default function GuestJukebox() {
             </div>
           )}
 
-          {!searchBusy && searchResults.length === 0 && debouncedQuery.length > 0 && (
+          {!searchBusy && searchResults.length === 0 && debouncedQuery.trim().length > 0 && (
             <div className="text-center py-10">
               <p className="text-zinc-500 text-sm">No tracks found for "{debouncedQuery}"</p>
             </div>
           )}
 
-          {searchResults.length > 0 && queueView && (
+          {searchResults.length > 0 && debouncedQuery.trim() && queueView && (
             <>
               {debouncedQuery && (
                 <p className="text-zinc-500 text-xs mb-3">

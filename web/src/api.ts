@@ -171,8 +171,11 @@ async function apiFetch<T>(path: string, options?: RequestInit): Promise<T> {
 export const api = {
   me: () => apiFetch<MeResponse>('/api/me'),
 
-  queue: (slug: string, areaId?: string) =>
-    apiFetch<QueueView>(`/api/events/${slug}/queue${areaId ? `?areaId=${encodeURIComponent(areaId)}` : ''}`),
+  queue: (slug: string, areaId?: string, signal?: AbortSignal) =>
+    apiFetch<QueueView>(
+      `/api/events/${slug}/queue${areaId ? `?areaId=${encodeURIComponent(areaId)}` : ''}`,
+      { signal },
+    ),
 
   // Public area roster for the guest jukebox selector (#70). Default area first.
   areas: (slug: string) =>
@@ -226,21 +229,22 @@ export const api = {
       body: JSON.stringify({ targetUserId, amount, note, idempotencyKey }),
     }),
 
-  adminAdvance: (slug: string) =>
+  adminAdvance: (slug: string, areaId?: string) =>
     apiFetch<{ queueView: QueueView }>(`/api/admin/events/${slug}/advance`, {
       method: 'POST',
+      body: JSON.stringify({ ...(areaId ? { areaId } : {}) }),
     }),
 
-  adminReorder: (slug: string, queueItemId: string, direction: 'up' | 'down') =>
+  adminReorder: (slug: string, queueItemId: string, direction: 'up' | 'down', areaId?: string) =>
     apiFetch<{ queueView: QueueView }>(`/api/admin/events/${slug}/reorder`, {
       method: 'POST',
-      body: JSON.stringify({ queueItemId, direction }),
+      body: JSON.stringify({ queueItemId, direction, ...(areaId ? { areaId } : {}) }),
     }),
 
-  adminRemove: (slug: string, queueItemId: string) =>
+  adminRemove: (slug: string, queueItemId: string, areaId?: string) =>
     apiFetch<{ queueView: QueueView; refund: RefundInfo | null }>(`/api/admin/events/${slug}/remove`, {
       method: 'POST',
-      body: JSON.stringify({ queueItemId }),
+      body: JSON.stringify({ queueItemId, ...(areaId ? { areaId } : {}) }),
     }),
 
   adminStats: (slug: string) =>

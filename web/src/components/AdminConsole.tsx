@@ -11,6 +11,7 @@ interface AdminConsoleProps {
   onQueueUpdated:   (view: QueueView) => void;
   onCreditsGranted: (balance: number) => void;
   showToast:        (msg: string, type: 'success' | 'error') => void;
+  areaId?:          string;
 }
 
 export function AdminConsole({
@@ -20,6 +21,7 @@ export function AdminConsole({
   onQueueUpdated,
   onCreditsGranted,
   showToast,
+  areaId,
 }: AdminConsoleProps) {
   const [stats, setStats] = useState<EventStats | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -45,7 +47,7 @@ export function AdminConsole({
   async function handleAdvance() {
     setAdvanceBusy(true);
     try {
-      const { queueView: view } = await api.adminAdvance(eventSlug);
+      const { queueView: view } = await api.adminAdvance(eventSlug, areaId);
       onQueueUpdated(view);
       showToast('Skipped to next track', 'success');
     } catch (err) {
@@ -58,7 +60,7 @@ export function AdminConsole({
   async function handleReorder(item: QueueItem, direction: 'up' | 'down') {
     setBusyId(item.id);
     try {
-      const { queueView: view } = await api.adminReorder(eventSlug, item.id, direction);
+      const { queueView: view } = await api.adminReorder(eventSlug, item.id, direction, areaId);
       onQueueUpdated(view);
     } catch (err) {
       showToast(err instanceof Error ? err.message : 'Reorder failed', 'error');
@@ -70,7 +72,7 @@ export function AdminConsole({
   async function handleRemove(item: QueueItem) {
     setBusyId(item.id);
     try {
-      const { queueView: view, refund } = await api.adminRemove(eventSlug, item.id);
+      const { queueView: view, refund } = await api.adminRemove(eventSlug, item.id, areaId);
       onQueueUpdated(view);
       showToast(
         refund ? `Removed — refunded ${refund.amount} credit${refund.amount !== 1 ? 's' : ''}` : 'Removed from queue',
