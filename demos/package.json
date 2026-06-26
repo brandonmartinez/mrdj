@@ -3,11 +3,12 @@
   "private": true,
   "type": "module",
   "version": "0.1.0",
-  "description": "Roman's demo / release-reels tooling — narrated screen recordings of shipped features.",
+  "description": "Roman's demo / release-reels tooling \u2014 narrated screen recordings of shipped features.",
   "scripts": {
     "record": "node scripts/full-tour.mjs",
     "tour": "node scripts/full-tour.mjs",
-    "epic": "node scripts/epic-ui-tour.mjs"
+    "epic": "node scripts/epic-ui-tour.mjs",
+    "wave3": "node scripts/wave3-tour.mjs"
   },
   "dependencies": {
     "playwright": "1.61.1"
