@@ -217,3 +217,27 @@
 **Decision:** Track the post-P0/P1 P2 and Rusty-nit remediation as an issues-filed → Rusty-gated → pushed workflow on `main`.
 **By:** Scribe, recording the cast outcome. **Owners:** Basher, Linus, Rai, Saul, Virgil, Livingston.
 **Why:** The cast filed #106–#116 with `squad:{owner}` labels, shipped the Rusty-approved wave as `584065c`, then shipped Basher's follow-up server-side zero-credit bundle guard as `2acc00e` (`origin/main` HEAD). API tests were 139 passing; web build was green; TypeScript was clean except pre-existing `music.test.ts(33,41)` TS1343. Deferred tracking remains open for #107, #115, #116, and #114 post-window money-retry idempotency.
+
+## Epic #130 UI Review Remediation (Waves 1+2) — Issues #119–#126
+
+### 2026-06-26 — Wave A: Mobile nav, DJ console theming, dashboard quick-path (Linus)
+**Decision:** Implemented #119 (OrgShell mobile nav drawer, slide-in from left, closes on navigation/backdrop/Esc, focus trap via Radix), #120 (AdminConsole theme tokens — zinc hardcodes replaced with semantic `bg-card`, `text-foreground`, `border`; Grant CTA violet; no remaining off-brand amber), #121 (OrgDashboard recent-event rows clickable with keyboard support; console shortcut appears for live events).
+**By:** Linus (Frontend Engineer). **Files:** OrgShell, AdminConsole, OrgDashboard + 3 testids per issue.
+**Build:** ✅ `tsc --noEmit && vite build` green.
+**Testids added:** `mobile-nav-button`, `mobile-nav-drawer`, `console-grant-cta`, `recent-event-row`, `dashboard-console-shortcut`.
+**Why:** Completes Wave A acceptance criteria; all 3 issues satisfy their own requirements. Routed to Linus per routing.md (frontend).
+
+### 2026-06-26 — Wave B: Responsive jukebox, gold cost tokens, search overlay, contextual modal, header user menu (Linus)
+**Decision:** Implemented #122 (GuestJukebox/CoverFlow responsive redesign — mobile stacked, desktop two-column `grid-cols-1 lg:grid-cols-2`; deduplicated queue in CoverFlow), #124 (gold coin cost tokens `CostToken.tsx` component; Play Next affordance/upsell; tappable insufficient tiers), #123 (search overlay as fixed `z-[90]` popover; queue anchored below), #125 (contextual modal with per-tier button labels: "Add to Queue!", "Boost!", "Play Next!", "Buy Credits!"; visible close button), #126 (header user dropdown menu; dev role switch moved into menu; credits button triggers buy flow).
+**By:** Linus (Frontend Engineer). **Files:** GuestJukebox, CoverFlow, TrackRow, ConfirmModal, Header, SearchBar, CostToken (new).
+**Build:** ✅ `tsc --noEmit && vite build` green.
+**Testids added:** `cost-token`, `play-next-cta`, `search-trigger`, `search-overlay`, `modal-primary-button`, `modal-close`, `header-user-menu`, `header-role-switch`, `header-buy-credits`.
+**Tradeoff:** Buy-credits via dummy track (reuses modal flow) — recommended later dedicated buy-credits modal (deferred).
+**Why:** Completes Wave B acceptance criteria; all 5 issues satisfy their requirements. Sequential routing (same implementer avoids GuestJukebox.tsx collision).
+
+### 2026-06-26 — Epic #130 Review & Approval (Rusty)
+**Decision:** Reviewed all 8 issues (#119–#126) against acceptance criteria. Per-issue: ✅ PASS on each. Cross-cutting: accessibility (focus trap, dialog roles, aria-labels), theming (violet consistency, gold tokens intentional), correctness (buy-credits approach sound, non-blocking nit), hygiene (no api/ changes, build green, 16 testids added).
+**By:** Rusty (Lead / Architect). **Verdict:** 🟢 **APPROVE** — all 8 satisfied, ship-ready pending owner's recorded-demo review.
+**Non-blocking note:** Header buy-credits uses synthetic dummy track — consider dedicated buy-credits modal flow post-launch.
+**Why:** Enforcement of maker/checker split per D5; all issues sandbox-correct and reviewer-approved.
+**Outcome:** 10 web files changed (9 modified, 1 new: CostToken.tsx). 16 data-testids added. `tsc --noEmit && vite build` green. api/ untouched. Working tree only per owner's recorded-demo requirement.

@@ -77,3 +77,44 @@ Updated `.squad/decisions.md` and `docs/ARCHITECTURE.md` for D7: Organization/Me
 **Status:** ✅ Complete
 
 Produced the Phase 2 technical sequencing plan: 11-epic table with release assignments (v0.2.0→v0.6.0+backlog), ~89-story breakdown, dependency graph, start-here recommendations, and go/needs-research flags per epic. Plan consumed by Saul to author `docs/ROADMAP.md` and create GitHub epics #5–#15, and by four worker agents (saul-core/money/experience/ops) to scope 89 story issues. Decision BP1 recorded in `.squad/decisions.md`.
+
+## 2026-06-26 | Epic #130 Review — UI Review Remediation (Waves 1+2)
+
+**Status:** ✅ Complete. 🟢 **APPROVE** — all 8 issues satisfied.
+
+### Scope
+
+8 issues from the UI Review Remediation epic, implemented by Linus (Wave A: #119–#121, Wave B: #122–#126).
+
+### Review Work
+
+**Per-issue assessment (all ✅ PASS):**
+- **#119 (mobile nav):** Hamburger drawer, Radix focus trap, Esc/backdrop/nav close, testids present.
+- **#120 (DJ console):** All zinc hardcodes → semantic tokens, violet Grant CTA, no off-brand chrome.
+- **#121 (dashboard):** Clickable rows + keyboard, console shortcut for live events, testids present.
+- **#122 (responsive):** Two-column desktop (`grid-cols-1 lg:grid-cols-2`), mobile stacked, deduped CoverFlow queue.
+- **#124 (cost tokens):** New CostToken component (gold gradient), Play Next only when available, ghosted CTA for upsell, testids present.
+- **#123 (search overlay):** Fixed `z-[90]` dialog, Esc/backdrop close, auto-focus, queue anchored.
+- **#125 (contextual modal):** Per-tier button labels, visible close button (✕), testids present.
+- **#126 (header):** Dropdown menu, dev role switch in-menu, credits button, header `max-w-7xl`.
+
+**Cross-cutting findings:**
+- **Accessibility:** ✅ Radix focus trap, aria-labels, role/aria-modal on dialogs, proper focus rings.
+- **Theming/Brand:** ✅ Violet consistency, gold tokens intentional (cost metaphor), no off-brand chrome.
+- **Correctness:** ⚠️ Non-blocking nit: Buy-credits dummy track reuses modal flow. Sound for MVP; recommend dedicated flow post-launch.
+- **Hygiene:** ✅ No api/ changes, no stray branches, build green, 16 testids added, working tree only.
+
+### Verdict
+
+🟢 **APPROVE** — All 8 acceptance criteria satisfied. Ship-ready pending owner's recorded-demo review.
+
+**Non-blocking note:** Header buy-credits via dummy track is a minor coupling risk; consider dedicated buy-credits modal post-launch. Not a blocker.
+
+**Recommended next step:** Brandon (owner) to record the demo and merge.
+
+### Results
+
+- **Files changed:** 10 web files (9 modified, 1 new)
+- **Testids added:** 16 total (5 Wave A, 9 Wave B, cross-verified)
+- **Build:** ✅ `tsc --noEmit && vite build` green
+- **State:** Working tree only (owner's recorded-demo requirement)

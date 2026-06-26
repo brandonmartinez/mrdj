@@ -118,3 +118,42 @@ Side items share a constant 52° tilt (classic macOS Cover Flow). React stable `
 - `POST /admin/credits/grant` returns `{ balance: number }` (not `{ creditBalance: number }`). Handled correctly.
 - Admin endpoints return 403 when called from guest session (correct behavior).
 - All request/advance responses include full `queueView` + `creditBalance` — no extra polling needed on action success. Used correctly.
+
+## 2026-06-26 Epic #130 — UI Review Remediation (Waves 1+2)
+
+**Status:** ✅ Complete. 🟢 **APPROVED** by Rusty.
+
+### Wave A: Mobile nav, DJ console theming, dashboard quick-path
+
+**Issues:** #119, #120, #121
+
+- **#119:** OrgShell mobile hamburger drawer. Slide-in from left; closes on navigation, backdrop tap, Esc. Focus trap via Radix Dialog. Active-link styling preserved. Testids: `mobile-nav-button`, `mobile-nav-drawer`.
+- **#120:** AdminConsole theme tokens. Replaced all hardcoded `zinc-*`/`black` with semantic tokens (`bg-card`, `text-foreground`, `text-muted-foreground`, `border`). Grant CTA: `bg-yellow-700` → violet `bg-primary`. Removed off-brand amber. Testid: `console-grant-cta`.
+- **#121:** OrgDashboard clickable recent-event rows. Keyboard support (Enter/Space). Console shortcut button for live events. Testids: `recent-event-row`, `dashboard-console-shortcut`.
+
+**Files:** OrgShell, AdminConsole, OrgDashboard (3 files modified; 5 testids added)
+
+### Wave B: Responsive jukebox, cost tokens, search overlay, modal, header menu
+
+**Issues:** #122, #124, #123, #125, #126
+
+- **#122:** GuestJukebox responsive redesign. Mobile stacked, desktop two-column `grid-cols-1 lg:grid-cols-2`. Deduplicated queue in CoverFlow (~25 lines removed).
+- **#124:** New `CostToken.tsx` component (gold gradient circle). Play Next shown only when available. Ghosted Play Next CTA in "Coming up". Testids: `cost-token`, `play-next-cta`.
+- **#123:** Search overlay (fixed `z-[90]`, role="dialog"). Keyboard: Esc closes, auto-focus on open. Queue anchored. Testids: `search-trigger`, `search-overlay`.
+- **#125:** ConfirmModal per-tier button labels ("Add to Queue!", "Boost!", "Play Next!", "Buy Credits!" gold gradient). Visible close button (✕). Testids: `modal-primary-button`, `modal-close`.
+- **#126:** Header user dropdown menu (top-right). Dev role switch moved into menu. Credits button triggers buy flow. Header `max-w-3xl` → `max-w-7xl`. Testids: `header-user-menu`, `header-role-switch`, `header-buy-credits`.
+
+**Files:** GuestJukebox, CoverFlow, TrackRow, ConfirmModal, Header, SearchBar, CostToken (7 files modified/new; 9 testids added)
+
+### Review & Approval
+
+**Rusty verdict (2026-06-26):** 🟢 **APPROVE**. All 8 issues satisfy acceptance criteria. Per-issue: ✅ PASS. Cross-cutting: accessibility (Radix focus trap, aria-labels), theming (violet consistency, gold intentional), correctness (buy-credits non-blocking nit), hygiene (no api/ changes, 16 testids, build green).
+
+Non-blocking note: Buy-credits reuses modal via dummy track — recommend dedicated flow post-launch.
+
+### Results
+
+- **Files changed:** 10 web files (9 modified, 1 new: CostToken.tsx)
+- **Testids added:** 16 total
+- **Build:** ✅ `tsc --noEmit && vite build` green
+- **State:** Working tree only (per owner's recorded-demo requirement)
