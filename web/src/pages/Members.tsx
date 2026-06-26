@@ -87,8 +87,8 @@ export default function Members() {
               <TableBody>
                 {members.map((m) => (
                   <TableRow key={m.id}>
-                    <TableCell className="font-medium">{m.displayName}</TableCell>
-                    <TableCell className="text-muted-foreground">{m.email}</TableCell>
+                    <TableCell className="max-w-48 truncate font-medium">{m.displayName}</TableCell>
+                    <TableCell className="max-w-64 truncate text-muted-foreground">{m.email}</TableCell>
                     <TableCell>
                       <Select value={m.role} onValueChange={(v) => changeRole(m, v as OrgRole)}>
                         <SelectTrigger className="h-8 capitalize"><SelectValue /></SelectTrigger>
@@ -115,8 +115,8 @@ export default function Members() {
         <CardContent>
           <form className="flex flex-wrap items-end gap-3" onSubmit={add}>
             <div className="flex-1 space-y-2">
-              <Label htmlFor="acct">Account ID</Label>
-              <Input id="acct" placeholder="account uuid" value={accountId} onChange={(e) => setAccountId(e.target.value)} />
+              <Label htmlFor="acct">Member account</Label>
+              <Input id="acct" placeholder="Paste account reference" value={accountId} onChange={(e) => setAccountId(e.target.value)} />
             </div>
             <div className="space-y-2">
               <Label>Role</Label>
@@ -132,7 +132,7 @@ export default function Members() {
             </Button>
           </form>
           <p className="mt-3 text-xs text-muted-foreground">
-            Invites by email are coming soon — for now add a known account ID.
+            Email invites are coming soon.
           </p>
         </CardContent>
       </Card>

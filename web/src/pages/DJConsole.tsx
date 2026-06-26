@@ -55,7 +55,7 @@ export default function DJConsole() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <Link to={`/o/${orgSlug}/events/${eventSlug}/manage`} className="text-sm text-muted-foreground hover:underline">← {eventSlug}</Link>
+          <Link to={`/o/${orgSlug}/events/${eventSlug}/manage`} className="text-sm text-muted-foreground hover:underline">← Event settings</Link>
           <h1 className="text-2xl font-semibold">DJ Console</h1>
         </div>
         {areas.length > 0 && (

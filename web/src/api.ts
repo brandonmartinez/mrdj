@@ -350,10 +350,10 @@ export const orgApi = {
     }),
 
   getOrg: (orgSlug: string) =>
-    apiFetch<{ organization: { id: string; slug: string; name: string } }>(`/api/orgs/${orgSlug}`),
+    apiFetch<{ organization: { id: string; slug: string; name: string; logoUrl: string | null; heroUrl: string | null; accentColor: string | null } }>(`/api/orgs/${orgSlug}`),
 
-  updateOrg: (orgSlug: string, body: { name?: string; logoUrl?: string | null; accentColor?: string | null }) =>
-    apiFetch<{ organization: { id: string; slug: string; name: string; logoUrl: string | null; accentColor: string | null } }>(`/api/orgs/${orgSlug}`, {
+  updateOrg: (orgSlug: string, body: { name?: string; logoUrl?: string | null; heroUrl?: string | null; accentColor?: string | null }) =>
+    apiFetch<{ organization: { id: string; slug: string; name: string; logoUrl: string | null; heroUrl: string | null; accentColor: string | null } }>(`/api/orgs/${orgSlug}`, {
       method: 'PATCH', body: JSON.stringify(body),
     }),
 
@@ -453,7 +453,7 @@ export const orgApi = {
 };
 
 export interface PublicOrg {
-  organization: { slug: string; name: string; logoUrl: string | null; accentColor: string | null };
+  organization: { slug: string; name: string; logoUrl: string | null; heroUrl: string | null; accentColor: string | null };
   events: { id: string; slug: string; name: string; status: 'draft' | 'live' | 'ended'; createdAt: string }[];
   bundles: Bundle[];
 }

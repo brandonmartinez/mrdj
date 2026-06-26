@@ -78,6 +78,13 @@
       "when": 1782400358327,
       "tag": "0010_guest_sessions_prune_index",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1782484775628,
+      "tag": "0011_loose_spot",
+      "breakpoints": true
     }
   ]
 }

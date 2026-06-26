@@ -18,6 +18,7 @@ export interface OrganizationRow {
   slug: string;
   name: string;
   logoUrl:     string | null;
+  heroUrl:     string | null;
   accentColor: string | null;
 }
 
@@ -42,7 +43,7 @@ export async function getOrgBySlug(slug: string, executor: DbExecutor = db): Pro
   const [row] = await executor
     .select({
       id: organizations.id, slug: organizations.slug, name: organizations.name,
-      logoUrl: organizations.logoUrl, accentColor: organizations.accentColor,
+      logoUrl: organizations.logoUrl, heroUrl: organizations.heroUrl, accentColor: organizations.accentColor,
     })
     .from(organizations)
     .where(eq(organizations.slug, slug))
@@ -55,7 +56,7 @@ export async function getOrgById(id: string, executor: DbExecutor = db): Promise
   const [row] = await executor
     .select({
       id: organizations.id, slug: organizations.slug, name: organizations.name,
-      logoUrl: organizations.logoUrl, accentColor: organizations.accentColor,
+      logoUrl: organizations.logoUrl, heroUrl: organizations.heroUrl, accentColor: organizations.accentColor,
     })
     .from(organizations)
     .where(eq(organizations.id, id))

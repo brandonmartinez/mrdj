@@ -6,6 +6,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { AlertTriangle, ArrowRight, CheckCircle2, Music2 } from 'lucide-react';
 
 function dollars(cents: number) {
@@ -18,25 +20,52 @@ export default function OrgDashboard() {
   const [events, setEvents] = useState<OrgEvent[] | null>(null);
   const [connect, setConnect] = useState<ConnectStatus | null>(null);
   const [summary, setSummary] = useState<OrgPaymentsSummary | null>(null);
+  const [logoUrl, setLogoUrl] = useState('');
+  const [heroUrl, setHeroUrl] = useState('');
+  const [brandingSaving, setBrandingSaving] = useState(false);
+  const [brandingMessage, setBrandingMessage] = useState<string | null>(null);
+  const [brandingError, setBrandingError] = useState<string | null>(null);
 
   useEffect(() => {
     let active = true;
     void (async () => {
-      const [ev, cs, pay] = await Promise.all([
+      const [ev, cs, pay, org] = await Promise.all([
         orgApi.listEvents(orgSlug).catch(() => ({ events: [] })),
         orgApi.connectStatus(orgSlug).catch(() => null),
         orgApi.payments(orgSlug).catch(() => null),
+        orgApi.getOrg(orgSlug).catch(() => null),
       ]);
       if (!active) return;
       setEvents(ev.events);
       setConnect(cs);
       setSummary(pay?.summary ?? null);
+      setLogoUrl(org?.organization.logoUrl ?? '');
+      setHeroUrl(org?.organization.heroUrl ?? '');
     })();
     return () => { active = false; };
   }, [orgSlug]);
 
   const liveEvents = events?.filter((e) => e.status === 'live').length ?? 0;
   const firstLiveEvent = events?.find((e) => e.status === 'live');
+
+  async function handleBrandingSave() {
+    setBrandingSaving(true);
+    setBrandingError(null);
+    setBrandingMessage(null);
+    try {
+      const updated = await orgApi.updateOrg(orgSlug, {
+        logoUrl: logoUrl.trim() || null,
+        heroUrl: heroUrl.trim() || null,
+      });
+      setLogoUrl(updated.organization.logoUrl ?? '');
+      setHeroUrl(updated.organization.heroUrl ?? '');
+      setBrandingMessage('Branding saved.');
+    } catch (err) {
+      setBrandingError(err instanceof Error ? err.message : 'Could not save branding.');
+    } finally {
+      setBrandingSaving(false);
+    }
+  }
 
   return (
     <div className="space-y-6">
@@ -92,6 +121,55 @@ export default function OrgDashboard() {
 
       <Card>
         <CardHeader>
+          <CardTitle className="text-lg">Branding</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-2">
+              <Label htmlFor="settings-logo-url">Logo image link</Label>
+              <Input
+                id="settings-logo-url"
+                data-testid="settings-logo-url"
+                type="url"
+                inputMode="url"
+                placeholder="Paste logo image link"
+                value={logoUrl}
+                onChange={(event) => setLogoUrl(event.target.value)}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="settings-hero-url">Hero image link</Label>
+              <Input
+                id="settings-hero-url"
+                data-testid="settings-hero-url"
+                type="url"
+                inputMode="url"
+                placeholder="Paste hero image link"
+                value={heroUrl}
+                onChange={(event) => setHeroUrl(event.target.value)}
+              />
+            </div>
+          </div>
+          <div className="flex flex-wrap items-center gap-3">
+            <Button
+              type="button"
+              data-testid="settings-branding-save"
+              onClick={handleBrandingSave}
+              disabled={brandingSaving}
+            >
+              {brandingSaving ? 'Saving…' : 'Save branding'}
+            </Button>
+            {brandingMessage && <p className="text-sm text-emerald-600">{brandingMessage}</p>}
+            {brandingError && <p className="text-sm text-destructive">{brandingError}</p>}
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Use secure image links. Leave either field blank to remove that image.
+          </p>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
           <CardTitle className="text-lg">Recent events</CardTitle>
         </CardHeader>
         <CardContent>
@@ -123,8 +201,8 @@ export default function OrgDashboard() {
                   tabIndex={0}
                   aria-label={`Open ${e.name} event`}
                 >
-                  <div>
-                    <p className="font-medium">{e.name}</p>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate font-medium">{e.name}</p>
                     <p className="text-xs text-muted-foreground">{e.areaCount} area{e.areaCount === 1 ? '' : 's'}</p>
                   </div>
                   <Badge variant={e.status === 'live' ? 'default' : 'secondary'} className="capitalize">{e.status}</Badge>

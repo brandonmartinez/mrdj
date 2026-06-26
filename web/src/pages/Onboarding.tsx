@@ -61,16 +61,13 @@ export default function Onboarding() {
               />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="slug">URL slug</Label>
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-muted-foreground">/o/</span>
-                <Input
-                  id="slug"
-                  value={effectiveSlug}
-                  placeholder="sunset-sounds"
-                  onChange={(e) => { setSlugDirty(true); setSlug(slugify(e.target.value)); }}
-                />
-              </div>
+              <Label htmlFor="slug">Public slug</Label>
+              <Input
+                id="slug"
+                value={effectiveSlug}
+                placeholder="sunset-sounds"
+                onChange={(e) => { setSlugDirty(true); setSlug(slugify(e.target.value)); }}
+              />
             </div>
             {error && <p className="text-sm text-destructive">{error}</p>}
             <Button type="submit" className="w-full" disabled={busy || !name.trim() || !effectiveSlug}>

@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { useSession } from './context/session';
 import { OrgShell } from './components/OrgShell';
 import GuestJukebox from './pages/GuestJukebox';
+import Kiosk from './pages/Kiosk';
 import OrgLanding from './pages/OrgLanding';
 import Login from './pages/Login';
 import Onboarding from './pages/Onboarding';
@@ -64,6 +65,7 @@ export default function App() {
 
       {/* Public guest jukebox + org landing — live outside the management shell. */}
       <Route path="/o/:orgSlug/events/:eventSlug" element={<RouteBoundary><GuestJukebox /></RouteBoundary>} />
+      <Route path="/o/:orgSlug/events/:eventSlug/kiosk" element={<RouteBoundary><Kiosk /></RouteBoundary>} />
       <Route path="/o/:orgSlug" element={<RouteBoundary><OrgLanding /></RouteBoundary>} />
 
       {/* Org management shell. */}

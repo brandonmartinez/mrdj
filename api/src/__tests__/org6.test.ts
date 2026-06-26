@@ -128,6 +128,39 @@ describe('Self-serve organizations (#32/#35)', () => {
     expect(empty.body.organization.logoUrl).toBeNull();
   });
 
+  it('validates organization hero URLs as HTTPS-only and returns them on GET', async () => {
+    const http = await apiCall<{ error: { code: string; message: string } }>(
+      'PATCH', `/orgs/${orgSlug}`, { heroUrl: 'http://tracker.example/hero.png' }, adminCookie,
+    );
+    expect(http.status).toBe(400);
+    expect(http.body.error.code).toBe('validation');
+    expect(http.body.error.message).toBe('heroUrl must be an HTTPS URL');
+
+    const https = await apiCall<{ organization: { heroUrl: string | null } }>(
+      'PATCH', `/orgs/${orgSlug}`, { heroUrl: 'https://cdn.example/hero.png' }, adminCookie,
+    );
+    expect(https.status).toBe(200);
+    expect(https.body.organization.heroUrl).toBe('https://cdn.example/hero.png');
+
+    const memberGet = await apiCall<{ organization: { heroUrl: string | null } }>(
+      'GET', `/orgs/${orgSlug}`, undefined, adminCookie,
+    );
+    expect(memberGet.status).toBe(200);
+    expect(memberGet.body.organization.heroUrl).toBe('https://cdn.example/hero.png');
+
+    const publicGet = await apiCall<{ organization: { heroUrl: string | null } }>(
+      'GET', `/orgs/${orgSlug}/public`,
+    );
+    expect(publicGet.status).toBe(200);
+    expect(publicGet.body.organization.heroUrl).toBe('https://cdn.example/hero.png');
+
+    const empty = await apiCall<{ organization: { heroUrl: string | null } }>(
+      'PATCH', `/orgs/${orgSlug}`, { heroUrl: null }, adminCookie,
+    );
+    expect(empty.status).toBe(200);
+    expect(empty.body.organization.heroUrl).toBeNull();
+  });
+
   it('duplicate slug is rejected (409)', async () => {
     const r = await apiCall('POST', '/me/orgs', { slug: orgSlug, name: 'Dup' }, adminCookie);
     expect(r.status).toBe(409);

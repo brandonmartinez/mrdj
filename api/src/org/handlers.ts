@@ -102,7 +102,7 @@ export async function getPublicOrgHandler(req: Request, res: Response) {
 
   res.json({
     organization: {
-      slug: org.slug, name: org.name, logoUrl: org.logoUrl, accentColor: org.accentColor,
+      slug: org.slug, name: org.name, logoUrl: org.logoUrl, heroUrl: org.heroUrl, accentColor: org.accentColor,
     },
     events: eventRows,
     bundles: bundleRows.map((b) => ({
@@ -115,11 +115,11 @@ export async function getPublicOrgHandler(req: Request, res: Response) {
 /** PATCH /api/orgs/:orgSlug — manager+ updates org name and guest-facing branding. */
 export async function updateOrgHandler(req: Request, res: Response) {
   const org = req.orgContext!;
-  const { name, logoUrl, accentColor } = req.body as {
-    name?: string; logoUrl?: string | null; accentColor?: string | null;
+  const { name, logoUrl, heroUrl, accentColor } = req.body as {
+    name?: string; logoUrl?: string | null; heroUrl?: string | null; accentColor?: string | null;
   };
 
-  const patch: Partial<{ name: string; logoUrl: string | null; accentColor: string | null }> = {};
+  const patch: Partial<{ name: string; logoUrl: string | null; heroUrl: string | null; accentColor: string | null }> = {};
 
   if (name !== undefined) {
     if (!name.trim()) { sendError(res, 400, 'validation', 'name must be non-empty'); return; }
@@ -132,6 +132,14 @@ export async function updateOrgHandler(req: Request, res: Response) {
       return;
     }
     patch.logoUrl = normalized;
+  }
+  if (heroUrl !== undefined) {
+    const normalized = normalizeLogoUrl(heroUrl);
+    if (normalized === '') {
+      sendError(res, 400, 'validation', 'heroUrl must be an HTTPS URL');
+      return;
+    }
+    patch.heroUrl = normalized;
   }
   if (accentColor !== undefined) {
     if (accentColor && !HEX_RE.test(accentColor)) {
@@ -152,7 +160,7 @@ export async function updateOrgHandler(req: Request, res: Response) {
     .where(eq(organizations.id, org.id))
     .returning({
       id: organizations.id, slug: organizations.slug, name: organizations.name,
-      logoUrl: organizations.logoUrl, accentColor: organizations.accentColor,
+      logoUrl: organizations.logoUrl, heroUrl: organizations.heroUrl, accentColor: organizations.accentColor,
     });
   res.json({ organization: updated });
 }

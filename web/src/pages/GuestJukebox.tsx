@@ -13,6 +13,7 @@ import type { PendingAction } from '../components/ConfirmModal.tsx';
 import { AdminConsole } from '../components/AdminConsole.tsx';
 import { Toast } from '../components/Toast.tsx';
 import type { ToastState } from '../components/Toast.tsx';
+import { HeroBanner } from '../components/HeroBanner.tsx';
 
 
 export default function GuestJukebox() {
@@ -309,6 +310,31 @@ export default function GuestJukebox() {
         style={{ paddingTop: 'calc(var(--header-h, 64px) + 16px)' }}
         className="max-w-7xl mx-auto pb-24 px-4"
       >
+        {org?.heroUrl && (
+          <section className="mb-6 overflow-hidden rounded-[2rem]">
+            <HeroBanner
+              heroUrl={org.heroUrl}
+              accent={org.accentColor ?? '#7c3aed'}
+              alt={`${org.name} hero`}
+              className="h-44 sm:h-56"
+              testId="org-hero"
+            />
+            <div className="relative z-10 -mt-16 flex items-end gap-3 px-5 pb-5">
+              {org.logoUrl && (
+                <img
+                  src={org.logoUrl}
+                  alt={org.name}
+                  className="h-16 w-16 rounded-2xl border border-white/20 bg-zinc-950 object-cover shadow-xl"
+                />
+              )}
+              <div className="min-w-0 pb-1">
+                <p className="truncate text-xs font-semibold uppercase tracking-widest text-white/70">{org.name}</p>
+                <h1 className="truncate text-2xl font-black tracking-tight">{me?.event.name ?? ''}</h1>
+              </div>
+            </div>
+          </section>
+        )}
+
         {/* ── Area selector (#70) — only when the event has multiple areas ── */}
         {areas.length > 1 && (
           <section aria-label="Choose area" className="mb-6">
@@ -464,6 +490,7 @@ export default function GuestJukebox() {
                   setSearchOverlayOpen(false);
                   setSearchQuery('');
                 }}
+                data-testid="search-overlay-close"
                 className="text-zinc-500 hover:text-zinc-300 transition-colors flex-shrink-0"
                 aria-label="Close search"
               >

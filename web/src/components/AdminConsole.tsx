@@ -28,9 +28,10 @@ export function AdminConsole({
   const [advanceBusy, setAdvanceBusy] = useState(false);
 
   // Grant form
-  const [targetUserId, setTargetUserId] = useState(guestUserId ?? GUEST_SEED_ID);
   const [amount, setAmount] = useState(10);
   const [grantBusy, setGrantBusy] = useState(false);
+  const grantTargetUserId = guestUserId ?? GUEST_SEED_ID;
+  const grantRecipientLabel = guestUserId ? 'Current guest session' : 'Demo guest session';
 
   const refreshStats = useCallback(async () => {
     try {
@@ -86,10 +87,10 @@ export function AdminConsole({
   }
 
   async function handleGrant() {
-    if (!targetUserId.trim() || amount <= 0) return;
+    if (!grantTargetUserId || amount <= 0) return;
     setGrantBusy(true);
     try {
-      const result = await api.adminGrant(targetUserId.trim(), amount, 'DJ console grant', crypto.randomUUID());
+      const result = await api.adminGrant(grantTargetUserId, amount, 'DJ console grant', crypto.randomUUID());
       onCreditsGranted(result.balance);
       showToast(`Granted ${amount} credits (balance ${result.balance})`, 'success');
     } catch (err) {
@@ -205,9 +206,9 @@ export function AdminConsole({
                   <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">Top requesters</p>
                   <div className="space-y-1">
                     {stats.topRequesters.map((r) => (
-                      <div key={r.userId} className="flex items-center justify-between text-sm">
-                        <span className="text-foreground truncate">{r.displayName}</span>
-                        <span className="text-muted-foreground text-xs tabular-nums">
+                      <div key={r.userId} className="flex min-w-0 items-center justify-between gap-3 text-sm">
+                        <span className="min-w-0 flex-1 truncate text-foreground">{r.displayName}</span>
+                        <span className="shrink-0 text-muted-foreground text-xs tabular-nums">
                           {r.requests} req · {r.spent} cr
                         </span>
                       </div>
@@ -228,14 +229,12 @@ export function AdminConsole({
           <h2 className="text-sm font-bold uppercase tracking-widest text-accent-foreground">Grant Credits</h2>
         </div>
         <div className="p-4 space-y-2">
-          <input
-            type="text"
-            value={targetUserId}
-            onChange={(e) => setTargetUserId(e.target.value)}
-            placeholder="Target user ID (UUID)"
-            aria-label="Target user ID"
-            className="w-full bg-background border rounded-lg px-3 py-2 text-foreground text-xs font-mono placeholder:text-muted-foreground focus:outline-none focus:border-primary transition-colors"
-          />
+          <div
+            aria-label="Credit recipient"
+            className="w-full rounded-lg border bg-background px-3 py-2 text-sm text-foreground"
+          >
+            {grantRecipientLabel}
+          </div>
           <div className="flex gap-2">
             <input
               type="number"

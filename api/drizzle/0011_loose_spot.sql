@@ -1,0 +1,1 @@
+ALTER TABLE "organizations" ADD COLUMN "hero_url" text;

@@ -72,12 +72,9 @@ export default function EventsList() {
                     onChange={(e) => setName(e.target.value)} />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="ev-slug">Public URL slug</Label>
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm text-muted-foreground">/events/</span>
-                    <Input id="ev-slug" value={effectiveSlug} placeholder="saturday-night"
-                      onChange={(e) => { setSlugDirty(true); setSlug(slugify(e.target.value)); }} />
-                  </div>
+                  <Label htmlFor="ev-slug">Public slug</Label>
+                  <Input id="ev-slug" value={effectiveSlug} placeholder="saturday-night"
+                    onChange={(e) => { setSlugDirty(true); setSlug(slugify(e.target.value)); }} />
                 </div>
                 {error && <p className="text-sm text-destructive">{error}</p>}
               </div>
@@ -111,7 +108,7 @@ export default function EventsList() {
                     <Badge variant={e.status === 'live' ? 'default' : 'secondary'} className="capitalize">{e.status}</Badge>
                   </div>
                   <p className="text-xs text-muted-foreground">
-                    /o/{orgSlug}/events/{e.slug} · {e.areaCount} area{e.areaCount === 1 ? '' : 's'}
+                    Guest page ready · {e.areaCount} area{e.areaCount === 1 ? '' : 's'}
                   </p>
                 </div>
                 <Button asChild variant="outline" size="sm">

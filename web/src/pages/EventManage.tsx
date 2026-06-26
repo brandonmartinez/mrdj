@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
+import { QRCodeSVG } from 'qrcode.react';
 import { orgApi, ApiRequestError } from '../api';
 import type { EventDetail, OrgArea } from '../api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -9,14 +10,19 @@ import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
+  Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger,
+} from '@/components/ui/dialog';
+import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
-import { Plus, Trash2, SlidersHorizontal, ExternalLink, Save } from 'lucide-react';
+import { Plus, Trash2, SlidersHorizontal, ExternalLink, Save, QrCode, Printer } from 'lucide-react';
 
 type Status = 'draft' | 'live' | 'ended';
 
 export default function EventManage() {
   const { orgSlug = '', eventSlug = '' } = useParams();
+  const guestUrl = `${window.location.origin}/o/${orgSlug}/events/${eventSlug}`;
+  const kioskPath = `/o/${orgSlug}/events/${eventSlug}/kiosk`;
   const [event, setEvent] = useState<EventDetail | null>(null);
   const [areas, setAreas] = useState<OrgArea[] | null>(null);
   const [name, setName] = useState('');
@@ -85,8 +91,8 @@ export default function EventManage() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <Link to={`/o/${orgSlug}/events`} className="text-sm text-muted-foreground hover:underline">← Events</Link>
-          <h1 className="flex items-center gap-2 text-2xl font-semibold">
-            {event.name}
+          <h1 className="flex min-w-0 items-center gap-2 text-2xl font-semibold">
+            <span className="min-w-0 truncate">{event.name}</span>
             <Badge variant={event.status === 'live' ? 'default' : 'secondary'} className="capitalize">{event.status}</Badge>
           </h1>
         </div>
@@ -133,6 +139,51 @@ export default function EventManage() {
       </Card>
 
       <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-lg">
+            <QrCode className="h-5 w-5" /> Guest QR code
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="grid gap-5 md:grid-cols-[220px_1fr]">
+          <div data-testid="event-qr" className="rounded-2xl border bg-white p-4 shadow-sm">
+            <QRCodeSVG value={guestUrl} size={188} level="M" className="h-full w-full" />
+          </div>
+          <div className="space-y-4">
+            <div>
+              <p className="text-sm font-medium text-foreground">Guests scan this to request songs.</p>
+              <p className="mt-1 text-sm text-muted-foreground">Guest link is encoded in the QR code.</p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Dialog>
+                <DialogTrigger asChild>
+                  <Button variant="outline">
+                    <QrCode className="mr-1 h-4 w-4" /> Enlarge / print
+                  </Button>
+                </DialogTrigger>
+                <DialogContent className="max-w-xl">
+                  <DialogHeader>
+                    <DialogTitle>{event.name} guest QR</DialogTitle>
+                    <DialogDescription>Print or project this code so guests can open the jukebox.</DialogDescription>
+                  </DialogHeader>
+                  <div className="mx-auto rounded-3xl border bg-white p-6">
+                    <QRCodeSVG value={guestUrl} size={360} level="M" className="h-full w-full" />
+                  </div>
+                  <Button onClick={() => window.print()}>
+                    <Printer className="mr-1 h-4 w-4" /> Print
+                  </Button>
+                </DialogContent>
+              </Dialog>
+              <Button asChild variant="secondary">
+                <Link data-testid="open-kiosk" to={kioskPath} target="_blank">
+                  <ExternalLink className="mr-1 h-4 w-4" /> Open kiosk
+                </Link>
+              </Button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
         <CardHeader><CardTitle className="text-lg">Areas</CardTitle></CardHeader>
         <CardContent className="space-y-4">
           {!areas ? (
@@ -141,8 +192,8 @@ export default function EventManage() {
             <ul className="divide-y rounded-md border">
               {areas.map((a) => (
                 <li key={a.id} className="flex items-center justify-between px-3 py-2.5">
-                  <span className="flex items-center gap-2">
-                    {a.name}
+                  <span className="flex min-w-0 flex-1 items-center gap-2">
+                    <span className="min-w-0 truncate">{a.name}</span>
                     {a.isDefault && <Badge variant="outline">Default</Badge>}
                   </span>
                   {!a.isDefault && (

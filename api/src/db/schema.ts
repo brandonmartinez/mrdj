@@ -52,9 +52,10 @@ export const organizations = pgTable('organizations', {
   chargesEnabled: boolean('charges_enabled').notNull().default(false),
   payoutsEnabled: boolean('payouts_enabled').notNull().default(false),
   // Guest-facing branding (Epic 7, #75). logoUrl renders in the jukebox header;
-  // accentColor (a hex string like '#7c3aed') tints primary UI. Both optional —
+  // heroUrl renders as the tenant hero image; accentColor (a hex string like '#7c3aed') tints primary UI. All optional —
   // the guest UI falls back to a neutral default theme when null.
   logoUrl: text('logo_url'),
+  heroUrl: text('hero_url'),
   accentColor: text('accent_color'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });

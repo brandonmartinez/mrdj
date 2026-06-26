@@ -3,6 +3,7 @@ import { useParams, Link, Navigate } from 'react-router-dom';
 import { orgApi } from '../api.ts';
 import type { PublicOrg } from '../api.ts';
 import { useSession } from '../context/session';
+import { HeroBanner } from '../components/HeroBanner.tsx';
 
 /**
  * Public org landing (#65) at /o/:orgSlug.
@@ -66,16 +67,23 @@ export default function OrgLanding() {
       <div className="max-w-2xl mx-auto px-5 py-12">
         {/* Brand header */}
         <div className="flex flex-col items-center text-center mb-10">
+          <HeroBanner
+            heroUrl={organization.heroUrl}
+            accent={accent}
+            alt={`${organization.name} hero`}
+            className="mb-6 w-full"
+            testId="org-hero"
+          />
           {organization.logoUrl ? (
             <img
               src={organization.logoUrl}
               alt={organization.name}
-              className="h-20 w-20 rounded-2xl object-cover mb-4 ring-2"
+              className={`h-20 w-20 rounded-2xl object-cover mb-4 ring-2 ${organization.heroUrl ? '-mt-16 relative z-10 bg-zinc-950 shadow-xl' : ''}`}
               style={{ ['--tw-ring-color' as string]: accent }}
             />
           ) : (
             <div
-              className="h-20 w-20 rounded-2xl mb-4 flex items-center justify-center text-3xl font-black"
+              className={`h-20 w-20 rounded-2xl mb-4 flex items-center justify-center text-3xl font-black ${organization.heroUrl ? '-mt-16 relative z-10 shadow-xl' : ''}`}
               style={{ backgroundColor: accent }}
             >
               {organization.name.charAt(0).toUpperCase()}

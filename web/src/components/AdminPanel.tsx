@@ -20,18 +20,22 @@ export function AdminPanel({
   onQueueAdvanced,
   showToast,
 }: AdminPanelProps) {
-  const [targetUserId, setTargetUserId] = useState(guestUserId ?? GUEST_SEED_ID);
   const [amount, setAmount] = useState(10);
   const [note, setNote] = useState('Admin grant');
   const [grantBusy, setGrantBusy] = useState(false);
   const [advanceBusy, setAdvanceBusy] = useState(false);
+  const grantTargetUserId = guestUserId ?? GUEST_SEED_ID;
+  const grantRecipientLabel = guestUserId ? 'Current guest session' : 'Demo guest session';
+  const showDevControls = Boolean((import.meta as ImportMeta & { env?: { DEV?: boolean } }).env?.DEV);
+
+  if (!showDevControls) return null;
 
   async function handleGrant() {
-    if (!targetUserId.trim() || amount <= 0) return;
+    if (!grantTargetUserId || amount <= 0) return;
     setGrantBusy(true);
     try {
       const idempotencyKey = crypto.randomUUID();
-      const result = await api.adminGrant(targetUserId.trim(), amount, note || 'Admin grant', idempotencyKey);
+      const result = await api.adminGrant(grantTargetUserId, amount, note || 'Admin grant', idempotencyKey);
       onCreditsGranted(result.balance);
       showToast(`Granted ${amount} credits. New balance: ${result.balance}`, 'success');
     } catch (err) {
@@ -70,14 +74,12 @@ export function AdminPanel({
             Grant Credits
           </p>
           <div className="space-y-2">
-            <input
-              type="text"
-              value={targetUserId}
-              onChange={(e) => setTargetUserId(e.target.value)}
-              placeholder="Target user ID (UUID)"
-              aria-label="Target user ID"
-              className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-white text-xs font-mono placeholder-zinc-600 focus:outline-none focus:border-yellow-600 transition-colors"
-            />
+            <div
+              aria-label="Credit recipient"
+              className="w-full rounded-lg border border-zinc-700 bg-zinc-900 px-3 py-2 text-sm text-white"
+            >
+              {grantRecipientLabel}
+            </div>
             <div className="flex gap-2">
               <input
                 type="number"
