@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useParams, useNavigate } from 'react-router-dom';
 import { orgApi } from '../api';
 import type { OrgEvent, ConnectStatus, OrgPaymentsSummary } from '../api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import { AlertTriangle, ArrowRight, CheckCircle2 } from 'lucide-react';
+import { AlertTriangle, ArrowRight, CheckCircle2, Music2 } from 'lucide-react';
 
 function dollars(cents: number) {
   return `$${(cents / 100).toFixed(2)}`;
@@ -14,6 +14,7 @@ function dollars(cents: number) {
 
 export default function OrgDashboard() {
   const { orgSlug = '' } = useParams();
+  const navigate = useNavigate();
   const [events, setEvents] = useState<OrgEvent[] | null>(null);
   const [connect, setConnect] = useState<ConnectStatus | null>(null);
   const [summary, setSummary] = useState<OrgPaymentsSummary | null>(null);
@@ -35,14 +36,29 @@ export default function OrgDashboard() {
   }, [orgSlug]);
 
   const liveEvents = events?.filter((e) => e.status === 'live').length ?? 0;
+  const firstLiveEvent = events?.find((e) => e.status === 'live');
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <h1 className="text-2xl font-semibold">Dashboard</h1>
-        <Button asChild>
-          <Link to={`/o/${orgSlug}/events`}>Manage events</Link>
-        </Button>
+        <div className="flex gap-2">
+          {firstLiveEvent && (
+            <Button
+              asChild
+              variant="outline"
+              size="sm"
+              data-testid="dashboard-console-shortcut"
+            >
+              <Link to={`/o/${orgSlug}/events/${firstLiveEvent.slug}/console`}>
+                <Music2 className="mr-1.5 h-4 w-4" /> Console
+              </Link>
+            </Button>
+          )}
+          <Button asChild>
+            <Link to={`/o/${orgSlug}/events`}>Manage events</Link>
+          </Button>
+        </div>
       </div>
 
       {connect && !connect.chargesEnabled && (
@@ -92,11 +108,23 @@ export default function OrgDashboard() {
           ) : (
             <ul className="divide-y">
               {events.slice(0, 5).map((e) => (
-                <li key={e.id} className="flex items-center justify-between py-3">
+                <li
+                  key={e.id}
+                  data-testid="recent-event-row"
+                  className="flex cursor-pointer items-center justify-between py-3 transition-colors hover:bg-muted/50 -mx-6 px-6 rounded-md"
+                  onClick={() => navigate(`/o/${orgSlug}/events/${e.slug}/manage`)}
+                  onKeyDown={(evt) => {
+                    if (evt.key === 'Enter' || evt.key === ' ') {
+                      evt.preventDefault();
+                      navigate(`/o/${orgSlug}/events/${e.slug}/manage`);
+                    }
+                  }}
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`Open ${e.name} event`}
+                >
                   <div>
-                    <Link className="font-medium hover:underline" to={`/o/${orgSlug}/events/${e.slug}/manage`}>
-                      {e.name}
-                    </Link>
+                    <p className="font-medium">{e.name}</p>
                     <p className="text-xs text-muted-foreground">{e.areaCount} area{e.areaCount === 1 ? '' : 's'}</p>
                   </div>
                   <Badge variant={e.status === 'live' ? 'default' : 'secondary'} className="capitalize">{e.status}</Badge>

@@ -1,4 +1,5 @@
 import type { Track, QueueView } from '../api';
+import { CostToken } from './CostToken';
 
 interface TrackRowProps {
   track: Track;
@@ -15,13 +16,10 @@ function formatMs(ms: number) {
 export function TrackRow({ track, queueView, creditBalance, onAction }: TrackRowProps) {
   const { pricing, playNext } = queueView;
 
-  const playNextUnavailable = playNext.status !== 'available';
-  const playNextLabel =
-    playNext.status === 'locked'
-      ? 'Slot taken'
-      : playNext.status === 'cooldown'
-      ? 'Cooling down'
-      : null;
+  const playNextAvailable = playNext.status === 'available';
+
+  const canAffordBoost = creditBalance >= pricing.boost;
+  const canAffordPlayNext = creditBalance >= pricing.playNext;
 
   return (
     <div className="flex items-center gap-3 bg-zinc-900/60 hover:bg-zinc-900 border border-zinc-800 hover:border-zinc-700 rounded-xl p-3 transition-all group">
@@ -59,35 +57,33 @@ export function TrackRow({ track, queueView, creditBalance, onAction }: TrackRow
         <button
           onClick={() => onAction(track, 'boost')}
           aria-label={`Boost ${track.title} to top of queue (${pricing.boost} credit${pricing.boost !== 1 ? 's' : ''})`}
-          className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors whitespace-nowrap border ${
-            creditBalance >= pricing.boost
+          className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors whitespace-nowrap border flex items-center gap-1.5 ${
+            canAffordBoost
               ? 'bg-violet-900/70 hover:bg-violet-800 text-violet-200 border-violet-700 hover:border-violet-600'
-              : 'bg-zinc-800/50 text-zinc-500 border-zinc-800 cursor-pointer'
+              : 'bg-zinc-800/50 text-zinc-400 border-zinc-800 hover:border-zinc-700 cursor-pointer'
           }`}
         >
-          Boost {pricing.boost}cr
+          <span>Boost</span>
+          <CostToken credits={pricing.boost} />
+          {!canAffordBoost && <span className="text-xs">Buy</span>}
         </button>
 
         {/* Play Next */}
-        <button
-          onClick={() => onAction(track, 'play_next')}
-          disabled={playNextUnavailable}
-          aria-label={
-            playNextUnavailable
-              ? `Play Next unavailable: ${playNextLabel ?? playNext.status}`
-              : `Play Next: ${track.title} (${pricing.playNext} credits)`
-          }
-          title={playNextUnavailable ? (playNextLabel ?? playNext.status) : undefined}
-          className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors whitespace-nowrap border ${
-            playNextUnavailable
-              ? 'bg-zinc-800/30 text-zinc-600 border-zinc-800 cursor-not-allowed'
-              : creditBalance >= pricing.playNext
-              ? 'bg-yellow-900/70 hover:bg-yellow-800 text-yellow-200 border-yellow-700 hover:border-yellow-600'
-              : 'bg-zinc-800/50 text-zinc-500 border-zinc-800 cursor-pointer'
-          }`}
-        >
-          {playNextUnavailable ? (playNextLabel ?? 'Unavailable') : `Next ${pricing.playNext}cr`}
-        </button>
+        {playNextAvailable && (
+          <button
+            onClick={() => onAction(track, 'play_next')}
+            aria-label={`Play Next: ${track.title} (${pricing.playNext} credits)`}
+            className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors whitespace-nowrap border flex items-center gap-1.5 ${
+              canAffordPlayNext
+                ? 'bg-yellow-900/70 hover:bg-yellow-800 text-yellow-200 border-yellow-700 hover:border-yellow-600'
+                : 'bg-zinc-800/50 text-zinc-400 border-zinc-800 hover:border-zinc-700 cursor-pointer'
+            }`}
+          >
+            <span>Next</span>
+            <CostToken credits={pricing.playNext} />
+            {!canAffordPlayNext && <span className="text-xs">Buy</span>}
+          </button>
+        )}
       </div>
     </div>
   );

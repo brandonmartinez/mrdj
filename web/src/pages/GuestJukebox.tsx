@@ -36,11 +36,11 @@ export default function GuestJukebox() {
   const [areas, setAreas] = useState<Area[]>([]);
   const [selectedAreaId, setSelectedAreaId] = useState<string | undefined>(undefined);
 
-  // Search state
   const [searchQuery, setSearchQuery] = useState('');
   const debouncedQuery = useDebounced(searchQuery, 220);
   const [searchResults, setSearchResults] = useState<Track[]>([]);
   const [searchBusy, setSearchBusy] = useState(false);
+  const [searchOverlayOpen, setSearchOverlayOpen] = useState(false);
   const abortRef = useRef<AbortController | null>(null);
 
   // Modal state
@@ -137,6 +137,26 @@ export default function GuestJukebox() {
     return () => ctrl.abort();
   }, [debouncedQuery]);
 
+  // Open overlay when user starts typing
+  useEffect(() => {
+    if (searchQuery.trim()) {
+      setSearchOverlayOpen(true);
+    }
+  }, [searchQuery]);
+
+  // Escape to close overlay
+  useEffect(() => {
+    if (!searchOverlayOpen) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setSearchOverlayOpen(false);
+        setSearchQuery('');
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [searchOverlayOpen]);
+
   // ── Role switch ─────────────────────────────────────────────────────────────
   async function handleRoleSwitch(role: 'guest' | 'admin') {
     try {
@@ -160,6 +180,26 @@ export default function GuestJukebox() {
   function handleTrackAction(track: Track, tier: 'queue' | 'boost' | 'play_next') {
     const idempotencyKey = crypto.randomUUID();
     setPendingAction({ track, tier, idempotencyKey });
+  }
+
+  function handleBuyCredits() {
+    // Open the insufficient-credits modal with a dummy track to trigger the buy flow
+    if (!queueView) return;
+    const dummyTrack: Track = {
+      id: 'buy-credits-flow',
+      title: 'Buy Credits',
+      artist: '',
+      album: '',
+      artworkUrl: '',
+      durationMs: 0,
+      provider: 'spotify',
+      providerId: '',
+    };
+    setPendingAction({
+      track: dummyTrack,
+      tier: 'boost', // Use a paid tier to trigger insufficient flow
+      idempotencyKey: crypto.randomUUID(),
+    });
   }
 
   function handleModalSuccess(update: { queueView: QueueView; creditBalance: number }) {
@@ -239,6 +279,7 @@ export default function GuestJukebox() {
         orgName={org?.name}
         logoUrl={org?.logoUrl}
         accentColor={org?.accentColor}
+        onBuyCredits={handleBuyCredits}
       />
 
       {/* ── DJ Console (admin-only view) ──────────────────────────── */}
@@ -266,11 +307,11 @@ export default function GuestJukebox() {
       /* Main content — padded below fixed header */
       <main
         style={{ paddingTop: 'calc(var(--header-h, 64px) + 16px)' }}
-        className="max-w-3xl mx-auto pb-24"
+        className="max-w-7xl mx-auto pb-24 px-4"
       >
         {/* ── Area selector (#70) — only when the event has multiple areas ── */}
         {areas.length > 1 && (
-          <section aria-label="Choose area" className="px-4 mb-6">
+          <section aria-label="Choose area" className="mb-6">
             <p className="text-xs font-semibold uppercase tracking-widest text-zinc-500 mb-2">Area</p>
             <div className="flex flex-wrap gap-2">
               {areas.map((area) => {
@@ -295,107 +336,79 @@ export default function GuestJukebox() {
           </section>
         )}
 
-        {/* ── Cover Flow ──────────────────────────────────────────────── */}
+        {/* ── Cover Flow — hero on top ─────────────────────────────── */}
         {queueView && (
           <section aria-label="Now playing queue" className="mb-8">
             <CoverFlow queueView={queueView} />
           </section>
         )}
 
-        {/* ── Play Next status bar ─────────────────────────────────── */}
-        {queueView && (
-          <div className="mx-4 mb-6 flex items-center justify-between bg-zinc-900/60 border border-zinc-800 rounded-xl px-4 py-3">
-            <div className="flex items-center gap-2">
-              <span className="text-yellow-400 text-sm" aria-hidden>★</span>
-              <span className="text-zinc-300 text-sm font-medium">Play Next</span>
-              <span
-                aria-label={`Play Next slot is ${queueView.playNext.status}`}
-                className={`text-xs px-2 py-0.5 rounded-full font-semibold ${
-                queueView.playNext.status === 'available'
-                  ? 'bg-green-900/50 text-green-400'
-                  : queueView.playNext.status === 'locked'
-                  ? 'bg-yellow-900/50 text-yellow-400'
-                  : 'bg-zinc-800 text-zinc-500'
-              }`}>
-                {queueView.playNext.status}
-              </span>
-            </div>
-            <span className="text-zinc-500 text-xs">
-              {queueView.pricing.playNext}cr
-            </span>
-          </div>
-        )}
-
-        {/* ── Search ───────────────────────────────────────────────── */}
-        <section aria-label="Search tracks" className="mb-4">
-          <SearchBar value={searchQuery} onChange={setSearchQuery} />
-        </section>
-
-        {/* ── Results ──────────────────────────────────────────────── */}
-        <section aria-label="Search results" className="px-4">
-          {searchBusy && !searchResults.length && (
-            <div className="space-y-2">
-              {[1, 2, 3].map((i) => (
-                <div key={i} className="h-20 rounded-xl bg-zinc-900/50 animate-pulse" />
-              ))}
-            </div>
-          )}
-
-          {!searchBusy && searchResults.length === 0 && debouncedQuery.trim().length > 0 && (
-            <div className="text-center py-10">
-              <p className="text-zinc-500 text-sm">No tracks found for "{debouncedQuery}"</p>
-            </div>
-          )}
-
-          {searchResults.length > 0 && debouncedQuery.trim() && queueView && (
-            <>
-              {debouncedQuery && (
-                <p className="text-zinc-500 text-xs mb-3">
-                  {searchResults.length} result{searchResults.length !== 1 ? 's' : ''} for "{debouncedQuery}"
+        {/* ── Two-column layout (desktop) or stacked (mobile) ────────── */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* ── LEFT COLUMN: Coming up queue ─────────────────────────── */}
+          <section aria-label="Coming up queue">
+            {queueView && (
+              <>
+                <p className="text-xs font-semibold uppercase tracking-widest text-zinc-500 mb-3">
+                  Coming up ({queueView.upcoming.length})
                 </p>
-              )}
-              <div className="space-y-2">
-                {searchResults.map((track) => (
-                  <TrackRow
-                    key={track.id}
-                    track={track}
-                    queueView={queueView}
-                    creditBalance={creditBalance}
-                    onAction={handleTrackAction}
-                  />
-                ))}
-              </div>
-            </>
-          )}
+                <div className="space-y-2">
+                  {/* Play Next preview — ghosted when available, solid when locked */}
+                  {queueView.playNext.status === 'available' && (
+                    <button
+                      onClick={() => {
+                        // Open search if empty, or encourage clicking a track
+                        setSearchQuery('');
+                      }}
+                      data-testid="play-next-cta"
+                      className="w-full flex items-center gap-3 bg-yellow-900/10 border border-yellow-700/30 border-dashed rounded-xl p-3 opacity-50 hover:opacity-70 transition-all group cursor-pointer"
+                    >
+                      <div className="w-12 h-12 rounded-lg bg-yellow-900/20 flex items-center justify-center flex-shrink-0">
+                        <span className="text-yellow-400 text-lg">★</span>
+                      </div>
+                      <div className="min-w-0 flex-1 text-left">
+                        <p className="text-yellow-200 text-sm font-semibold">Play Next Available</p>
+                        <p className="text-yellow-400/70 text-xs">
+                          Jump the queue — {queueView.pricing.playNext}cr
+                        </p>
+                      </div>
+                      <span className="text-yellow-400 text-xs font-bold flex-shrink-0">Buy slot →</span>
+                    </button>
+                  )}
 
-          {/* Upcoming queue — visible when no search query */}
-          {!debouncedQuery && queueView && queueView.upcoming.length > 0 && (
-            <div className="mt-6">
-              <p className="text-xs font-semibold uppercase tracking-widest text-zinc-500 mb-3">
-                Coming up ({queueView.upcoming.length})
-              </p>
-              <div className="space-y-2">
-                {queueView.upcoming.map((item) => (
-                  <div key={item.id} className="flex items-center gap-3 bg-zinc-900/40 border border-zinc-800/60 rounded-xl p-3">
-                    <img
-                      src={item.track.artworkUrl}
-                      alt={item.track.title}
-                      className="w-12 h-12 rounded-lg object-cover flex-shrink-0"
-                    />
-                    <div className="min-w-0 flex-1">
-                      <p className="text-white text-sm font-semibold truncate">{item.track.title}</p>
-                      <p className="text-zinc-400 text-xs truncate">{item.track.artist}</p>
+                  {queueView.upcoming.length > 0 && queueView.upcoming.map((item) => (
+                    <div key={item.id} className="flex items-center gap-3 bg-zinc-900/40 border border-zinc-800/60 rounded-xl p-3">
+                      <img
+                        src={item.track.artworkUrl}
+                        alt={item.track.title}
+                        className="w-12 h-12 rounded-lg object-cover flex-shrink-0"
+                      />
+                      <div className="min-w-0 flex-1">
+                        <p className="text-white text-sm font-semibold truncate">{item.track.title}</p>
+                        <p className="text-zinc-400 text-xs truncate">{item.track.artist}</p>
+                      </div>
+                      {item.isPlayNext && (
+                        <span className="text-xs font-bold text-yellow-400 flex-shrink-0 bg-yellow-900/30 px-2 py-0.5 rounded-full">★ NEXT</span>
+                      )}
+                      <span className="text-zinc-600 text-xs flex-shrink-0">#{item.position}</span>
                     </div>
-                    {item.isPlayNext && (
-                      <span className="text-xs font-bold text-yellow-400 flex-shrink-0 bg-yellow-900/30 px-2 py-0.5 rounded-full">★ NEXT</span>
-                    )}
-                    <span className="text-zinc-600 text-xs flex-shrink-0">#{item.position}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-        </section>
+                  ))}
+                </div>
+              </>
+            )}
+          </section>
+
+          {/* ── RIGHT COLUMN: Search and Results ─────────────────────── */}
+          <section aria-label="Search tracks">
+            <button
+              data-testid="search-trigger"
+              onClick={() => setSearchOverlayOpen(true)}
+              className="w-full px-4 py-3 bg-zinc-900/60 border border-zinc-800 rounded-xl text-left text-zinc-500 hover:border-zinc-700 hover:bg-zinc-900 transition-colors"
+            >
+              <span className="text-sm">🔍 Search tracks...</span>
+            </button>
+          </section>
+        </div>
       </main>
       )}
 
@@ -417,6 +430,96 @@ export default function GuestJukebox() {
       {/* ── Toast notifications ──────────────────────────────────── */}
       {toast && (
         <Toast toast={toast} onDismiss={() => setToast(null)} />
+      )}
+
+      {/* ── Search overlay (#123) ───────────────────────────────── */}
+      {searchOverlayOpen && (
+        <div
+          data-testid="search-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="search-overlay-title"
+          className="fixed inset-0 z-[90] flex items-start justify-center p-4 pt-20"
+          onClick={(e) => {
+            if (e.target === e.currentTarget) {
+              setSearchOverlayOpen(false);
+              setSearchQuery('');
+            }
+          }}
+        >
+          {/* Backdrop */}
+          <div className="absolute inset-0 bg-black/80 backdrop-blur-sm" aria-hidden />
+
+          {/* Search panel */}
+          <div className="relative w-full max-w-2xl bg-zinc-900 border border-zinc-700 rounded-2xl shadow-2xl overflow-hidden">
+            {/* Header */}
+            <div className="p-4 border-b border-zinc-800 flex items-center gap-3">
+              <SearchBar
+                value={searchQuery}
+                onChange={setSearchQuery}
+                autoFocus
+              />
+              <button
+                onClick={() => {
+                  setSearchOverlayOpen(false);
+                  setSearchQuery('');
+                }}
+                className="text-zinc-500 hover:text-zinc-300 transition-colors flex-shrink-0"
+                aria-label="Close search"
+              >
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M18 6 6 18M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+
+            {/* Results */}
+            <div className="max-h-[60vh] overflow-y-auto p-4">
+              {searchBusy && !searchResults.length && (
+                <div className="space-y-2">
+                  {[1, 2, 3].map((i) => (
+                    <div key={i} className="h-20 rounded-xl bg-zinc-900/50 animate-pulse" />
+                  ))}
+                </div>
+              )}
+
+              {!searchBusy && searchResults.length === 0 && debouncedQuery.trim().length > 0 && (
+                <div className="text-center py-10">
+                  <p className="text-zinc-500 text-sm">No tracks found for "{debouncedQuery}"</p>
+                </div>
+              )}
+
+              {!searchBusy && searchResults.length === 0 && !debouncedQuery.trim() && (
+                <div className="text-center py-10">
+                  <p className="text-zinc-500 text-sm">Start typing to search tracks...</p>
+                </div>
+              )}
+
+              {searchResults.length > 0 && debouncedQuery.trim() && queueView && (
+                <>
+                  <p id="search-overlay-title" className="text-zinc-500 text-xs mb-3">
+                    {searchResults.length} result{searchResults.length !== 1 ? 's' : ''} for "{debouncedQuery}"
+                  </p>
+                  <div className="space-y-2">
+                    {searchResults.map((track) => (
+                      <TrackRow
+                        key={track.id}
+                        track={track}
+                        queueView={queueView}
+                        creditBalance={creditBalance}
+                        onAction={(t, tier) => {
+                          handleTrackAction(t, tier);
+                          setSearchOverlayOpen(false);
+                          setSearchQuery('');
+                        }}
+                      />
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

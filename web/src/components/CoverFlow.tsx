@@ -115,33 +115,6 @@ export function CoverFlow({ queueView }: CoverFlowProps) {
           </p>
         </div>
       )}
-
-      {/* Mobile upcoming list — visible on narrow screens in addition to cover flow */}
-      {isMobile && upcoming.length > 0 && (
-        <div className="mt-6 px-4">
-          <p className="text-xs font-semibold uppercase tracking-widest text-zinc-500 mb-3">
-            Up Next ({upcoming.length})
-          </p>
-          <div className="space-y-2">
-            {upcoming.slice(0, 5).map((item) => (
-              <div key={item.id} className="flex items-center gap-3 bg-zinc-900 rounded-lg p-2.5">
-                <img
-                  src={item.track.artworkUrl}
-                  alt={item.track.title}
-                  className="w-10 h-10 rounded-md object-cover flex-shrink-0"
-                />
-                <div className="min-w-0 flex-1">
-                  <p className="text-white text-sm font-semibold truncate">{item.track.title}</p>
-                  <p className="text-zinc-400 text-xs truncate">{item.track.artist}</p>
-                </div>
-                {item.isPlayNext && (
-                  <span className="text-xs font-bold text-yellow-400 flex-shrink-0">NEXT</span>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   );
 }

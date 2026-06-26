@@ -1,13 +1,20 @@
-import { useRef } from 'react';
+import { useRef, useEffect } from 'react';
 
 interface SearchBarProps {
   value: string;
   onChange: (v: string) => void;
+  autoFocus?: boolean;
 }
 
-export function SearchBar({ value, onChange }: SearchBarProps) {
+export function SearchBar({ value, onChange, autoFocus }: SearchBarProps) {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (autoFocus) {
+      inputRef.current?.focus();
+    }
+  }, [autoFocus]);
 
   function handleFocus() {
     // Scroll wrapper to just under the sticky header (--header-h set by Header component)

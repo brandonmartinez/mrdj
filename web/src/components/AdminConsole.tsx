@@ -104,13 +104,13 @@ export function AdminConsole({
   return (
     <div className="px-4 space-y-6">
       {/* ── Now playing + Skip ─────────────────────────────────────── */}
-      <section className="rounded-2xl border border-zinc-800 bg-zinc-900/50 overflow-hidden">
-        <div className="px-4 py-3 border-b border-zinc-800 flex items-center justify-between">
-          <h2 className="text-sm font-bold uppercase tracking-widest text-zinc-400">Now Playing</h2>
+      <section className="rounded-2xl border bg-card overflow-hidden">
+        <div className="px-4 py-3 border-b flex items-center justify-between">
+          <h2 className="text-sm font-bold uppercase tracking-widest text-muted-foreground">Now Playing</h2>
           <button
             onClick={() => void handleAdvance()}
             disabled={advanceBusy}
-            className="px-3 py-1.5 rounded-lg bg-violet-700 hover:bg-violet-600 disabled:opacity-50 text-white text-xs font-bold transition-colors"
+            className="px-3 py-1.5 rounded-lg bg-primary hover:bg-primary/90 disabled:opacity-50 text-primary-foreground text-xs font-bold transition-colors"
           >
             {advanceBusy ? 'Skipping…' : '⏭ Skip'}
           </button>
@@ -120,26 +120,26 @@ export function AdminConsole({
             <div className="flex items-center gap-3">
               <img src={queueView.nowPlaying.track.artworkUrl} alt="" className="w-14 h-14 rounded-lg object-cover" />
               <div className="min-w-0">
-                <p className="text-white font-bold truncate">{queueView.nowPlaying.track.title}</p>
-                <p className="text-zinc-400 text-sm truncate">{queueView.nowPlaying.track.artist}</p>
+                <p className="text-foreground font-bold truncate">{queueView.nowPlaying.track.title}</p>
+                <p className="text-muted-foreground text-sm truncate">{queueView.nowPlaying.track.artist}</p>
               </div>
             </div>
           ) : (
-            <p className="text-zinc-500 text-sm">Nothing playing.</p>
+            <p className="text-muted-foreground text-sm">Nothing playing.</p>
           )}
         </div>
       </section>
 
       {/* ── Upcoming queue with controls ───────────────────────────── */}
-      <section className="rounded-2xl border border-zinc-800 bg-zinc-900/50 overflow-hidden">
-        <div className="px-4 py-3 border-b border-zinc-800">
-          <h2 className="text-sm font-bold uppercase tracking-widest text-zinc-400">
+      <section className="rounded-2xl border bg-card overflow-hidden">
+        <div className="px-4 py-3 border-b">
+          <h2 className="text-sm font-bold uppercase tracking-widest text-muted-foreground">
             Upcoming ({upcoming.length})
           </h2>
         </div>
-        <div className="divide-y divide-zinc-800/70">
+        <div className="divide-y">
           {upcoming.length === 0 && (
-            <p className="text-zinc-500 text-sm p-4">Queue is empty.</p>
+            <p className="text-muted-foreground text-sm p-4">Queue is empty.</p>
           )}
           {upcoming.map((item, idx) => {
             const isHolder = item.isPlayNext;
@@ -149,11 +149,11 @@ export function AdminConsole({
             const rowBusy = busyId === item.id;
             return (
               <div key={item.id} className="flex items-center gap-3 p-3">
-                <span className="text-zinc-600 text-xs w-5 text-center tabular-nums">{item.position}</span>
+                <span className="text-muted-foreground/50 text-xs w-5 text-center tabular-nums">{item.position}</span>
                 <img src={item.track.artworkUrl} alt="" className="w-11 h-11 rounded-lg object-cover flex-shrink-0" />
                 <div className="min-w-0 flex-1">
-                  <p className="text-white text-sm font-semibold truncate">{item.track.title}</p>
-                  <p className="text-zinc-400 text-xs truncate">{item.track.artist}</p>
+                  <p className="text-foreground text-sm font-semibold truncate">{item.track.title}</p>
+                  <p className="text-muted-foreground text-xs truncate">{item.track.artist}</p>
                 </div>
                 {isHolder && (
                   <span className="text-xs font-bold text-yellow-400 bg-yellow-900/30 px-2 py-0.5 rounded-full flex-shrink-0" aria-label="Play Next holder, pinned to top">
@@ -165,19 +165,19 @@ export function AdminConsole({
                     onClick={() => void handleReorder(item, 'up')}
                     disabled={!canUp || rowBusy}
                     aria-label={`Move ${item.track.title} up`}
-                    className="w-7 h-7 rounded-md bg-zinc-800 hover:bg-zinc-700 disabled:opacity-30 disabled:cursor-not-allowed text-zinc-300 text-sm flex items-center justify-center transition-colors"
+                    className="w-7 h-7 rounded-md bg-muted hover:bg-muted/80 disabled:opacity-30 disabled:cursor-not-allowed text-foreground text-sm flex items-center justify-center transition-colors"
                   >▲</button>
                   <button
                     onClick={() => void handleReorder(item, 'down')}
                     disabled={!canDown || rowBusy}
                     aria-label={`Move ${item.track.title} down`}
-                    className="w-7 h-7 rounded-md bg-zinc-800 hover:bg-zinc-700 disabled:opacity-30 disabled:cursor-not-allowed text-zinc-300 text-sm flex items-center justify-center transition-colors"
+                    className="w-7 h-7 rounded-md bg-muted hover:bg-muted/80 disabled:opacity-30 disabled:cursor-not-allowed text-foreground text-sm flex items-center justify-center transition-colors"
                   >▼</button>
                   <button
                     onClick={() => void handleRemove(item)}
                     disabled={rowBusy}
                     aria-label={`Remove ${item.track.title} from queue`}
-                    className="w-7 h-7 rounded-md bg-red-900/40 hover:bg-red-800/60 disabled:opacity-40 text-red-300 text-sm flex items-center justify-center transition-colors"
+                    className="w-7 h-7 rounded-md bg-destructive/20 hover:bg-destructive/30 disabled:opacity-40 text-destructive text-sm flex items-center justify-center transition-colors"
                   >✕</button>
                 </div>
               </div>
@@ -187,9 +187,9 @@ export function AdminConsole({
       </section>
 
       {/* ── Stats ──────────────────────────────────────────────────── */}
-      <section className="rounded-2xl border border-zinc-800 bg-zinc-900/50 overflow-hidden">
-        <div className="px-4 py-3 border-b border-zinc-800">
-          <h2 className="text-sm font-bold uppercase tracking-widest text-zinc-400">Event Stats</h2>
+      <section className="rounded-2xl border bg-card overflow-hidden">
+        <div className="px-4 py-3 border-b">
+          <h2 className="text-sm font-bold uppercase tracking-widest text-muted-foreground">Event Stats</h2>
         </div>
         <div className="p-4">
           {stats ? (
@@ -202,12 +202,12 @@ export function AdminConsole({
               </div>
               {stats.topRequesters.length > 0 && (
                 <div className="mt-4">
-                  <p className="text-xs font-semibold uppercase tracking-wider text-zinc-500 mb-2">Top requesters</p>
+                  <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-2">Top requesters</p>
                   <div className="space-y-1">
                     {stats.topRequesters.map((r) => (
                       <div key={r.userId} className="flex items-center justify-between text-sm">
-                        <span className="text-zinc-300 truncate">{r.displayName}</span>
-                        <span className="text-zinc-500 text-xs tabular-nums">
+                        <span className="text-foreground truncate">{r.displayName}</span>
+                        <span className="text-muted-foreground text-xs tabular-nums">
                           {r.requests} req · {r.spent} cr
                         </span>
                       </div>
@@ -217,15 +217,15 @@ export function AdminConsole({
               )}
             </>
           ) : (
-            <p className="text-zinc-500 text-sm">Loading stats…</p>
+            <p className="text-muted-foreground text-sm">Loading stats…</p>
           )}
         </div>
       </section>
 
       {/* ── Grant credits ──────────────────────────────────────────── */}
-      <section className="rounded-2xl border border-yellow-700/40 bg-yellow-950/20 overflow-hidden">
-        <div className="px-4 py-3 border-b border-yellow-800/30">
-          <h2 className="text-sm font-bold uppercase tracking-widest text-yellow-300">Grant Credits</h2>
+      <section className="rounded-2xl border border-primary/30 bg-accent/50 overflow-hidden">
+        <div className="px-4 py-3 border-b border-primary/20">
+          <h2 className="text-sm font-bold uppercase tracking-widest text-accent-foreground">Grant Credits</h2>
         </div>
         <div className="p-4 space-y-2">
           <input
@@ -234,7 +234,7 @@ export function AdminConsole({
             onChange={(e) => setTargetUserId(e.target.value)}
             placeholder="Target user ID (UUID)"
             aria-label="Target user ID"
-            className="w-full bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-white text-xs font-mono placeholder-zinc-600 focus:outline-none focus:border-yellow-600 transition-colors"
+            className="w-full bg-background border rounded-lg px-3 py-2 text-foreground text-xs font-mono placeholder:text-muted-foreground focus:outline-none focus:border-primary transition-colors"
           />
           <div className="flex gap-2">
             <input
@@ -244,12 +244,13 @@ export function AdminConsole({
               max={1000}
               onChange={(e) => setAmount(Math.max(1, parseInt(e.target.value) || 1))}
               aria-label="Credit amount"
-              className="w-24 bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-2 text-white text-sm text-center focus:outline-none focus:border-yellow-600 transition-colors"
+              className="w-24 bg-background border rounded-lg px-3 py-2 text-foreground text-sm text-center focus:outline-none focus:border-primary transition-colors"
             />
             <button
               onClick={() => void handleGrant()}
               disabled={grantBusy}
-              className="flex-1 py-2.5 rounded-lg bg-yellow-700 hover:bg-yellow-600 disabled:opacity-50 text-white text-sm font-bold transition-colors"
+              data-testid="console-grant-cta"
+              className="flex-1 py-2.5 rounded-lg bg-primary hover:bg-primary/90 disabled:opacity-50 text-primary-foreground text-sm font-bold transition-colors"
             >
               {grantBusy ? 'Granting…' : `Grant ${amount} Credits`}
             </button>
@@ -262,9 +263,9 @@ export function AdminConsole({
 
 function Stat({ label, value }: { label: string; value: number }) {
   return (
-    <div className="rounded-xl bg-zinc-800/50 border border-zinc-800 px-3 py-2.5">
-      <p className="text-2xl font-black text-white tabular-nums leading-none">{value}</p>
-      <p className="text-zinc-500 text-xs mt-1">{label}</p>
+    <div className="rounded-xl bg-muted/50 border px-3 py-2.5">
+      <p className="text-2xl font-black text-foreground tabular-nums leading-none">{value}</p>
+      <p className="text-muted-foreground text-xs mt-1">{label}</p>
     </div>
   );
 }

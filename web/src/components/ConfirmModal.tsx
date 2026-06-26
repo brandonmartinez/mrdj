@@ -50,7 +50,7 @@ export function ConfirmModal({
     : queueView.pricing.playNext;
 
   const [phase, setPhase] = useState<Phase>(
-    initialBalance < cost ? 'insufficient' : 'confirm'
+    initialBalance < cost ? 'insufficient' : track.id === 'buy-credits-flow' ? 'bundles' : 'confirm'
   );
   const [currentBalance, setCurrentBalance] = useState(initialBalance);
   const [errorMsg, setErrorMsg] = useState('');
@@ -193,14 +193,24 @@ export function ConfirmModal({
         {/* ── CONFIRM ─────────────────────────────────────── */}
         {phase === 'confirm' && (
           <>
-            <div className="p-5 border-b border-zinc-800">
+            <div className="p-5 border-b border-zinc-800 relative">
+              <button
+                data-testid="modal-close"
+                onClick={onCancel}
+                className="absolute top-4 right-4 text-zinc-500 hover:text-zinc-300 transition-colors"
+                aria-label="Close"
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M18 6 6 18M6 6l12 12" />
+                </svg>
+              </button>
               <div className="flex items-center gap-3">
                 <img
                   src={track.artworkUrl}
                   alt={track.title}
                   className="w-14 h-14 rounded-lg object-cover flex-shrink-0"
                 />
-                <div className="min-w-0">
+                <div className="min-w-0 pr-8">
                   <p id="modal-title" className="text-white font-bold truncate">{track.title}</p>
                   <p className="text-zinc-400 text-sm truncate">{track.artist}</p>
                 </div>
@@ -208,24 +218,31 @@ export function ConfirmModal({
             </div>
 
             <div className="p-5 space-y-3">
-              <div className="bg-zinc-800/60 rounded-xl p-4 space-y-2">
-                <div className="flex justify-between text-sm">
-                  <span className="text-zinc-400">Action</span>
-                  <span className="text-white font-medium">{tierLabel(tier)}</span>
+              {/* Add free — no cost/balance rows, just confirm */}
+              {tier === 'queue' && cost === 0 ? (
+                <p className="text-zinc-400 text-sm text-center py-2">
+                  Add this track to the queue for free!
+                </p>
+              ) : (
+                <div className="bg-zinc-800/60 rounded-xl p-4 space-y-2">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-zinc-400">Action</span>
+                    <span className="text-white font-medium">{tierLabel(tier)}</span>
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-zinc-400">Cost</span>
+                    <span className="text-white font-medium">
+                      {cost} credit{cost !== 1 ? 's' : ''}
+                    </span>
+                  </div>
+                  <div className="border-t border-zinc-700 pt-2 flex justify-between text-sm">
+                    <span className="text-zinc-400">Balance after</span>
+                    <span className={`font-bold ${resultingBalance < 0 ? 'text-red-400' : 'text-violet-300'}`}>
+                      {resultingBalance} credits
+                    </span>
+                  </div>
                 </div>
-                <div className="flex justify-between text-sm">
-                  <span className="text-zinc-400">Cost</span>
-                  <span className={cost === 0 ? 'text-green-400 font-medium' : 'text-white font-medium'}>
-                    {cost === 0 ? 'Free' : `${cost} credit${cost !== 1 ? 's' : ''}`}
-                  </span>
-                </div>
-                <div className="border-t border-zinc-700 pt-2 flex justify-between text-sm">
-                  <span className="text-zinc-400">Balance after</span>
-                  <span className={`font-bold ${resultingBalance < 0 ? 'text-red-400' : 'text-violet-300'}`}>
-                    {resultingBalance} credits
-                  </span>
-                </div>
-              </div>
+              )}
 
               <div className="flex gap-2 pt-1">
                 <button
@@ -236,10 +253,11 @@ export function ConfirmModal({
                 </button>
                 <button
                   ref={firstFocusRef}
+                  data-testid="modal-primary-button"
                   onClick={() => void handleConfirm()}
                   className="flex-1 py-3 rounded-xl bg-violet-700 hover:bg-violet-600 text-white text-sm font-bold transition-colors"
                 >
-                  Confirm
+                  {tier === 'queue' ? 'Add to Queue!' : tier === 'boost' ? 'Boost!' : 'Play Next!'}
                 </button>
               </div>
             </div>
@@ -274,7 +292,17 @@ export function ConfirmModal({
         {/* ── INSUFFICIENT CREDITS ────────────────────────── */}
         {phase === 'insufficient' && (
           <>
-            <div className="p-5 border-b border-zinc-800">
+            <div className="p-5 border-b border-zinc-800 relative">
+              <button
+                data-testid="modal-close"
+                onClick={onCancel}
+                className="absolute top-4 right-4 text-zinc-500 hover:text-zinc-300 transition-colors"
+                aria-label="Close"
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M18 6 6 18M6 6l12 12" />
+                </svg>
+              </button>
               <p id="modal-title" className="text-white font-bold text-lg">Not enough credits</p>
               <p className="text-zinc-400 text-sm mt-1">
                 {tierLabel(tier)} costs <strong className="text-white">{cost}</strong> credit{cost !== 1 ? 's' : ''} but
@@ -287,10 +315,11 @@ export function ConfirmModal({
               </button>
               <button
                 ref={firstFocusRef}
+                data-testid="modal-primary-button"
                 onClick={() => setPhase('bundles')}
-                className="flex-1 py-3 rounded-xl bg-violet-700 hover:bg-violet-600 text-white text-sm font-bold transition-colors"
+                className="flex-1 py-3 rounded-xl bg-gradient-to-r from-yellow-600 to-yellow-500 hover:from-yellow-500 hover:to-yellow-400 text-black text-sm font-black transition-all shadow-lg"
               >
-                Buy credits
+                Buy Credits!
               </button>
             </div>
           </>
