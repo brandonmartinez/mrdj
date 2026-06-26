@@ -3,7 +3,7 @@
 // pre-synthesized so each scene dwells long enough for its narration, then the
 // clips are placed at their recorded wall-clock offsets and mixed onto the video.
 import { chromium } from 'playwright';
-import { mkdirSync, readdirSync, writeFileSync, rmSync } from 'fs';
+import { mkdirSync, readdirSync, writeFileSync, rmSync, statSync } from 'fs';
 import { execFileSync } from 'child_process';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
@@ -96,9 +96,10 @@ export async function record(def) {
   await ctx.close(); // finalizes the webm
   await browser.close();
 
-  // 3) Find the recording.
+  // 3) Find the recording (newest by mtime — Playwright names webms randomly).
   const webm = readdirSync(RAW).filter((f) => f.endsWith('.webm'))
-    .map((f) => join(RAW, f)).sort().pop();
+    .map((f) => join(RAW, f))
+    .sort((a, b) => statSync(b).mtimeMs - statSync(a).mtimeMs)[0];
 
   // 4) Mux: scale video + place each VO clip at its offset, mix onto the track.
   const date = new Date().toISOString().slice(0, 10);

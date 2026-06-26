@@ -6,7 +6,8 @@
   "description": "Roman's demo / release-reels tooling — narrated screen recordings of shipped features.",
   "scripts": {
     "record": "node scripts/full-tour.mjs",
-    "tour": "node scripts/full-tour.mjs"
+    "tour": "node scripts/full-tour.mjs",
+    "epic": "node scripts/epic-ui-tour.mjs"
   },
   "dependencies": {
     "playwright": "1.61.1"
