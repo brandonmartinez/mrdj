@@ -54,3 +54,9 @@
 **Smoke test results:** All MC-01..MC-10 verified via curl against live API (see report to Coordinator).
 
 **Decision:** O3 (realtime transport) remains open — Linus will need polling or SSE to update Cover Flow after queue mutations. Recommend Basher/Linus pair to resolve before sprint review.
+
+## 2026-06-26 Wave 3 — Org hero URL backend
+
+- Added `heroUrl` by mirroring the existing `logoUrl` URL-only branding pattern: nullable DB column, HTTPS validation, null/empty clears, and public/org API payload support.
+- Drizzle migration `0011_loose_spot` applied cleanly; org API coverage extended; 148 API tests passed.
+- Learning: keep new org branding fields aligned with the logo/accent contract unless storage/upload scope is explicitly requested.

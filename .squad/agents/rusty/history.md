@@ -118,3 +118,9 @@ Produced the Phase 2 technical sequencing plan: 11-epic table with release assig
 - **Testids added:** 16 total (5 Wave A, 9 Wave B, cross-verified)
 - **Build:** ✅ `tsc --noEmit && vite build` green
 - **State:** Working tree only (owner's recorded-demo requirement)
+
+## 2026-06-26 | Wave 3 Review — UI Review Remediation
+
+**Status:** ✅ Complete. 🟢 **APPROVE** — #127, #128, and #129 satisfied.
+
+Reviewed the full working-tree diff for backend heroUrl support, frontend QR/kiosk, org branding UI, and polish cleanup. No blocking issues found across acceptance criteria, SOLID/DRY/YAGNI, secrets, and regression checks. Non-blocking nit: untracked `demos/.DS_Store`. Consolidated verification was green: web build, 148 API tests, and migration application.

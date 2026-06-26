@@ -157,3 +157,10 @@ Non-blocking note: Buy-credits reuses modal via dummy track — recommend dedica
 - **Testids added:** 16 total
 - **Build:** ✅ `tsc --noEmit && vite build` green
 - **State:** Working tree only (per owner's recorded-demo requirement)
+
+## 2026-06-26 Wave 3 — QR, kiosk, branding, polish
+
+- Added per-event QR management and a fullscreen kiosk as a public sibling route outside `OrgShell`; testids: `event-qr`, `open-kiosk`, `kiosk-qr`.
+- Added `HeroBanner` and Branding settings for `logoUrl`/`heroUrl`; hero images use an accent-color scrim and gracefully disappear when unset.
+- Polish audit removed user-facing raw UUIDs/URLs, added truncation and close hooks, and kept amber only where it communicates semantic warning state.
+- Learning: kiosk/guest public routes should stay chrome-free, and warning amber is acceptable when meaning-bearing rather than decorative brand chrome.

@@ -241,3 +241,15 @@
 **Non-blocking note:** Header buy-credits uses synthetic dummy track — consider dedicated buy-credits modal flow post-launch.
 **Why:** Enforcement of maker/checker split per D5; all issues sandbox-correct and reviewer-approved.
 **Outcome:** 10 web files changed (9 modified, 1 new: CostToken.tsx). 16 data-testids added. `tsc --noEmit && vite build` green. api/ untouched. Working tree only per owner's recorded-demo requirement.
+
+### 2026-06-26 — Wave 3: heroUrl backend contract (Basher)
+**By:** Basher. **What:** Added nullable `hero_url` organization branding storage/API support that mirrors `logoUrl`, including HTTPS validation on PATCH, nullable clears, public/org GET payloads, Drizzle migration `0011_loose_spot`, and org tests. **Why:** Keeps hero imagery on the existing URL-only branding pattern without introducing uploads/storage outside the slice scope.
+
+### 2026-06-26 — Wave 3: per-event QR and kiosk route (Linus)
+**By:** Linus. **What:** Added `qrcode.react`, an admin EventManage QR card with enlarge/print affordance and kiosk link, plus a fullscreen public `/o/:orgSlug/events/:eventSlug/kiosk` route outside `OrgShell`. **Why:** Gives DJs printable/scannable event entry points and a chrome-free venue display while keeping kiosk public beside the guest jukebox route.
+
+### 2026-06-26 — Wave 3: org hero branding frontend (Linus)
+**By:** Linus. **What:** Added `heroUrl` typing, shared `HeroBanner`, hero+logo rendering on org/event guest pages, and a Branding settings card for logo/hero URLs. **Why:** Lets tenants express branded imagery consistently across landing and guest jukebox surfaces using the same accent-gradient treatment.
+
+### 2026-06-26 — Wave 3: UI polish audit outcomes (Linus)
+**By:** Linus. **What:** Removed raw UUID/URL copy from user-facing surfaces, added truncation/close hooks, dev-gated legacy admin affordances, and deliberately kept the three amber instances as semantic warnings. **Why:** Tightens product polish and testability without flattening meaningful warning states into decorative brand color.
